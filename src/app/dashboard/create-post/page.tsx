@@ -157,24 +157,24 @@ export default function CreatePostPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-8 pt-10">
-      <header className="mb-8 border-b border-gray-800 pb-6">
-        <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
+      <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <FileText className="text-violet-400" />
           Đăng Bài & Nội Dung Hàng Loạt
         </h1>
-        <p className="text-sm text-gray-400 mt-1">Cấu hình WordPress và nhập danh sách link Google Docs để parse & post tự động.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Cấu hình WordPress và nhập danh sách link Google Docs để parse & post tự động.</p>
       </header>
 
       <div className="space-y-8">
         
         {/* Section 1: WP Config */}
-        <div className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6">
+        <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               <Settings size={18} className="text-blue-400" />
               1. Cấu hình WordPress Destination
             </h2>
-            <button onClick={checkConnection} disabled={checking} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-700 transition">
+            <button onClick={checkConnection} disabled={checking} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
               {checking ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} className={checkResult?.success ? 'text-violet-400' : ''} />}
               {checking ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
             </button>
@@ -188,51 +188,51 @@ export default function CreatePostPage() {
           )}
 
           <div className="mb-4">
-            <label className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 block">Chọn Website đã lưu (Hoặc nhập thủ công)</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2 block">Chọn Website đã lưu (Hoặc nhập thủ công)</label>
             <select 
               value={selectedProjectId} 
               onChange={handleProjectChange} 
-              className="w-full bg-black/20 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-violet-500 transition"
+              className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition"
             >
-              <option value="">-- Nhập thủ công bên dưới --</option>
+              <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="">-- Nhập thủ công bên dưới --</option>
               {projects.map(p => (
-                <option key={p.id} value={p.id.toString()}>{p.name} ({p.url})</option>
+                <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" key={p.id} value={p.id.toString()}>{p.name} ({p.url})</option>
               ))}
             </select>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">URL Website</label>
-              <input type="url" name="wp_url" value={siteConfig.wp_url} onChange={handleConfigChange} placeholder="https://domain.com" className="w-full bg-black/20 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-violet-500 transition" />
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">URL Website</label>
+              <input type="url" name="wp_url" value={siteConfig.wp_url} onChange={handleConfigChange} placeholder="https://domain.com" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">Username</label>
-              <input type="text" name="wp_user" value={siteConfig.wp_user} onChange={handleConfigChange} placeholder="admin" className="w-full bg-black/20 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-violet-500 transition" />
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Username</label>
+              <input type="text" name="wp_user" value={siteConfig.wp_user} onChange={handleConfigChange} placeholder="admin" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center gap-1">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
                  <Key size={12} /> Application Password
               </label>
-              <input type="password" name="wp_app_pass" value={siteConfig.wp_app_pass} onChange={handleConfigChange} placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" className="w-full bg-black/20 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-violet-500 transition" />
+              <input type="password" name="wp_app_pass" value={siteConfig.wp_app_pass} onChange={handleConfigChange} placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
           </div>
         </div>
 
         {/* Section 2: Google Docs & Content List */}
-        <div className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6">
+        <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               <LinkIcon size={18} className="text-violet-400" />
               2. Danh sách Nội Dung (Google Docs)
             </h2>
-            <button onClick={addPost} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-700 transition">
+            <button onClick={addPost} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
               <Plus size={14} /> Thêm bài
             </button>
           </div>
 
           <div className="space-y-4">
             {posts.map((post, index) => (
-              <div key={post.id} className="p-4 bg-black/20 border border-gray-800 rounded-lg relative group">
+              <div key={post.id} className="p-4 bg-white dark:bg-black/20 border border-gray-200 dark:border-gray-800 rounded-lg relative group">
                 {/* Delete button */}
                 {posts.length > 1 && (
                   <button onClick={() => removePost(post.id)} className="absolute top-4 right-4 text-gray-600 hover:text-red-400 transition-colors">
@@ -240,44 +240,44 @@ export default function CreatePostPage() {
                   </button>
                 )}
                 
-                <h3 className="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider">Mục #{index + 1}</h3>
+                <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wider">Mục #{index + 1}</h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-[11px] font-medium text-gray-500 uppercase">Link Google Docs</label>
-                    <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="https://docs.google.com/document/d/..." className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition" />
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Link Google Docs</label>
+                    <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="https://docs.google.com/document/d/..." className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-500 uppercase">Định dạng (Format)</label>
-                    <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value)} className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition">
-                      <option value="post">Bài viết (Post)</option>
-                      <option value="page">Trang (Page)</option>
-                      <option value="category">Danh mục (Category)</option>
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Định dạng (Format)</label>
+                    <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value)} className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition">
+                      <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="post">Bài viết (Post)</option>
+                      <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="page">Trang (Page)</option>
+                      <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="category">Danh mục (Category)</option>
                     </select>
                   </div>
                   {post.postType === 'post' && (
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-gray-500 uppercase">Chuyên mục (ID)</label>
-                      <input type="number" value={post.categoryId} onChange={(e) => updatePost(post.id, 'categoryId', e.target.value)} className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition" />
+                      <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Chuyên mục (ID)</label>
+                      <input type="number" value={post.categoryId} onChange={(e) => updatePost(post.id, 'categoryId', e.target.value)} className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
                     </div>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-500 uppercase">Tiêu đề (Tùy chọn ghi đè)</label>
-                    <input type="text" value={post.title} onChange={(e) => updatePost(post.id, 'title', e.target.value)} placeholder="Tự động parse nếu rỗng" className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition" />
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Tiêu đề (Tùy chọn ghi đè)</label>
+                    <input type="text" value={post.title} onChange={(e) => updatePost(post.id, 'title', e.target.value)} placeholder="Tự động parse nếu rỗng" className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-500 uppercase">Trạng thái</label>
-                    <select value={post.status} onChange={(e) => updatePost(post.id, 'status', e.target.value)} className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition">
-                      <option value="draft">Nháp (Draft)</option>
-                      <option value="publish">Công khai (Publish)</option>
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Trạng thái</label>
+                    <select value={post.status} onChange={(e) => updatePost(post.id, 'status', e.target.value)} className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition">
+                      <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="draft">Nháp (Draft)</option>
+                      <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="publish">Công khai (Publish)</option>
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-500 uppercase">Meta Description</label>
-                    <input type="text" value={post.meta_desc} onChange={(e) => updatePost(post.id, 'meta_desc', e.target.value)} className="w-full bg-white/5 backdrop-blur-md border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 transition" />
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase">Meta Description</label>
+                    <input type="text" value={post.meta_desc} onChange={(e) => updatePost(post.id, 'meta_desc', e.target.value)} className="w-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
                   </div>
                 </div>
 
@@ -308,10 +308,10 @@ export default function CreatePostPage() {
           <button 
             onClick={handleBulkSubmit}
             disabled={loading}
-            className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold text-white shadow-lg transition-all ${
+            className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
               loading 
-              ? 'bg-gray-600 cursor-not-allowed' 
-              : 'bg-white text-black hover:scale-[1.02] transition-all shadow-lg shadow-white/5 hover:bg-gray-100'
+              ? 'bg-gray-600 text-slate-900 dark:text-white cursor-not-allowed' 
+              : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all'
             }`}
           >
             {loading ? 'Hệ thống đang chạy...' : `Đăng Hàng Loạt (${posts.length} Mục)`}

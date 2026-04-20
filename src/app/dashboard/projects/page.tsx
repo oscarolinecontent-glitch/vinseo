@@ -54,19 +54,19 @@ export default function ProjectsPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-8 pt-10">
-      <header className="mb-8 border-b border-gray-800 pb-6">
-        <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
+      <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <Target className="text-violet-400" />
           Quản Lý Dự Án
         </h1>
-        <p className="text-sm text-gray-400 mt-1">Lưu trữ thông tin các website WordPress để cấu hình tool tự động.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Lưu trữ thông tin các website WordPress để cấu hình tool tự động.</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          <div className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden">
-            <table className="w-full text-left text-sm text-gray-400">
-              <thead className="bg-black/20 text-xs uppercase border-b border-gray-800">
+          <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-sm text-gray-600 dark:text-gray-400">
+              <thead className="bg-white dark:bg-black/20 text-xs uppercase border-b border-gray-200 dark:border-gray-800">
                 <tr>
                   <th className="px-6 py-4">Website</th>
                   <th className="px-6 py-4">Tài khoản WP</th>
@@ -76,15 +76,15 @@ export default function ProjectsPage() {
               <tbody>
                 {projects.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-6 py-8 text-center text-gray-500">Chưa có dự án nào. Hãy thêm mới bên phải.</td>
+                    <td colSpan={3} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">Chưa có dự án nào. Hãy thêm mới bên phải.</td>
                   </tr>
                 ) : (
                   projects.map((p) => (
-                    <tr key={p.id} className="border-b border-gray-800/50 hover:bg-gray-800/20">
+                    <tr key={p.id} className="border-b border-gray-200 dark:border-gray-800/50 hover:bg-gray-800/20">
                       <td className="px-6 py-4 flex items-center gap-3">
                         <Globe size={16} className="text-blue-400" />
                         <div>
-                          <p className="font-semibold text-white">{p.name}</p>
+                          <p className="font-semibold text-slate-900 dark:text-white">{p.name}</p>
                           <p className="text-xs">{p.url}</p>
                         </div>
                       </td>
@@ -103,25 +103,25 @@ export default function ProjectsPage() {
         </div>
 
         <div>
-          <form onSubmit={handleAdd} className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6 space-y-4">
-            <h3 className="font-semibold text-white mb-2">Thêm Dự Án Mới</h3>
+          <form onSubmit={handleAdd} className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-4">
+            <h3 className="font-semibold text-slate-900 dark:text-white mb-2">Thêm Dự Án Mới</h3>
             <div>
-              <label className="text-xs text-gray-400">Tên Dự Án</label>
-              <input required value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="VD: Blog SEO..." />
+              <label className="text-xs text-gray-600 dark:text-gray-400">Tên Dự Án</label>
+              <input required value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="VD: Blog SEO..." />
             </div>
             <div>
-              <label className="text-xs text-gray-400">URL Website</label>
-              <input required type="url" value={newProject.url} onChange={e => setNewProject({...newProject, url: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="https://..." />
+              <label className="text-xs text-gray-600 dark:text-gray-400">URL Website</label>
+              <input required type="url" value={newProject.url} onChange={e => setNewProject({...newProject, url: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="https://..." />
             </div>
             <div>
-              <label className="text-xs text-gray-400">WP Username</label>
-              <input required value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" />
+              <label className="text-xs text-gray-600 dark:text-gray-400">WP Username</label>
+              <input required value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
             <div>
-              <label className="text-xs text-gray-400">App Password</label>
-              <input required type="password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" />
+              <label className="text-xs text-gray-600 dark:text-gray-400">App Password</label>
+              <input required type="password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
-            <button type="submit" className="w-full flex items-center justify-center gap-2 bg-white text-black hover:scale-[1.02] shadow-lg shadow-white/5 font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
+            <button type="submit" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
               <Plus size={16} /> Thêm Dự Án
             </button>
           </form>

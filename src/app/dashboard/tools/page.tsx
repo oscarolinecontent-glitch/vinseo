@@ -24,28 +24,28 @@ export default function ToolsPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-8 pt-10">
-      <header className="mb-8 border-b border-gray-800 pb-6">
-        <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
+      <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <Puzzle className="text-violet-400" />
           Hệ Thống Công Cụ (Tools)
         </h1>
-        <p className="text-sm text-gray-400 mt-1">Các công cụ tự động hóa quá trình làm SEO và đăng bài.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Các công cụ tự động hóa quá trình làm SEO và đăng bài.</p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {tools.map(tool => (
-          <div key={tool.id} className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6 flex flex-col justify-between hover:border-gray-600 transition-colors">
+          <div key={tool.id} className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6 flex flex-col justify-between hover:border-gray-600 transition-colors">
             <div>
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-gray-800/50 rounded-lg">
                   {tool.icon}
                 </div>
-                <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase ${tool.status === 'Sẵn sàng' ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-800 text-gray-400'}`}>
+                <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase ${tool.status === 'Sẵn sàng' ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
                   {tool.status}
                 </span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">{tool.name}</h3>
-              <p className="text-sm text-gray-400 mb-6 line-clamp-3">{tool.desc}</p>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{tool.name}</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 line-clamp-3">{tool.desc}</p>
             </div>
             
             {tool.status === 'Sẵn sàng' ? (
@@ -53,7 +53,7 @@ export default function ToolsPage() {
                 Sử dụng công cụ <ArrowRight size={16} className="ml-1" />
               </Link>
             ) : (
-              <span className="flex items-center text-sm font-semibold text-gray-500 cursor-not-allowed">
+              <span className="flex items-center text-sm font-semibold text-gray-500 dark:text-gray-400 cursor-not-allowed">
                 Chưa mở khóa <ArrowRight size={16} className="ml-1" />
               </span>
             )}
