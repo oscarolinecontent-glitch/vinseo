@@ -32,7 +32,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await signInWithPopup(auth, googleProvider);
       router.push('/dashboard');
-    } catch (error) {
+    } catch (error: any) {
+      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        // Người dùng tự đóng cửa sổ đăng nhập hoặc bấm liên tiếp, không cần báo lỗi đỏ
+        console.log("Đã đóng popup đăng nhập");
+        return;
+      }
       console.error("Error signing in with Google", error);
     }
   };

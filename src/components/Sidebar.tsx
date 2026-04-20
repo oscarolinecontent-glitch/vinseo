@@ -10,12 +10,19 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
 
   return (
-    <aside className="w-64 bg-[#141b25] border-r border-gray-800 flex flex-col justify-between">
-      <div>
+    <aside className="w-64 bg-slate-950/40 backdrop-blur-2xl border-r border-white/5 flex flex-col justify-between relative overflow-hidden">
+      {/* Vệt sáng chạy mờ ảo trên cùng Sidebar */}
+      <div className="absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-violet-500/10 via-fuchsia-500/5 to-transparent pointer-events-none"></div>
+      
+      <div className="relative z-10">
         {/* Logo App */}
-        <div className="h-16 flex items-center gap-3 px-6 text-[#12b981] border-b border-gray-800">
-          <Hexagon size={28} className="fill-[#12b981]/20 stroke-[#12b981]" />
-          <span className="font-bold text-xl text-white tracking-wide">MySEOApp</span>
+        <div className="h-20 flex items-center gap-3 px-6 text-violet-500 border-b border-white/5">
+          {/* Thay Hexagon bằng Logo thực tế + Hiệu ứng phát sáng nhịp nhàng */}
+          <div className="relative">
+            <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-lg blur opacity-50 animate-pulse"></div>
+            <img src="/favicon.ico" alt="VinSEO Logo" className="relative w-8 h-8 rounded drop-shadow-xl bg-slate-900" />
+          </div>
+          <span className="font-bold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 tracking-wide drop-shadow-md">VinSEO</span>
           <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 rounded uppercase mt-1">v1.0</span>
         </div>
 
@@ -32,9 +39,9 @@ export default function Sidebar() {
       </div>
       {/* User Profile & Logout */}
       {user && (
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
+        <div className="p-4 border-t border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
-            <img src={user.photoURL || 'https://via.placeholder.com/40'} alt="Avatar" className="w-9 h-9 shrink-0 rounded-full object-cover border border-gray-700" />
+            <img src={user.photoURL || 'https://via.placeholder.com/40'} alt="Avatar" className="w-9 h-9 shrink-0 rounded-full object-cover border border-white/10 shadow-lg" />
             <div className="flex flex-col truncate">
               <span className="text-sm text-white font-medium truncate">{user.displayName}</span>
               <span className="text-xs text-gray-500 truncate">{user.email}</span>
@@ -51,13 +58,17 @@ export default function Sidebar() {
 
 function NavItem({ icon, text, active = false, isNew = false, href }: { icon: React.ReactNode, text: string, active?: boolean, isNew?: boolean, href: string }) {
   return (
-    <Link href={href} className={`flex justify-between items-center p-3 rounded-lg cursor-pointer mb-1 transition-all ${active ? 'bg-[#12b981]/10 text-[#12b981]' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-      <div className="flex items-center gap-3">
+    <Link href={href} className={`flex justify-between items-center p-3 rounded-xl cursor-pointer mb-1 transition-all duration-500 relative overflow-hidden group ${active ? 'bg-violet-500/15 text-violet-300 shadow-[0_0_20px_rgba(139,92,246,0.15)] border border-violet-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+      
+      {/* Glow effect khi Hover & Active */}
+      <div className={`absolute inset-0 bg-gradient-to-r from-violet-500/0 via-violet-500/5 to-transparent translate-x-[-100%] transition-transform duration-700 ${active ? 'translate-x-0' : 'group-hover:translate-x-0'}`}></div>
+
+      <div className="flex items-center gap-3 relative z-10">
         {icon}
         <span className="text-[13px] font-medium">{text}</span>
       </div>
       {isNew && (
-        <span className="bg-[#12b981] text-black text-[9px] px-1.5 py-[2px] rounded font-bold uppercase leading-none mt-px tracking-wider shadow">HOT</span>
+        <span className="bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white text-[9px] px-1.5 py-[2px] rounded font-bold uppercase leading-none mt-px tracking-wider shadow-lg">HOT</span>
       )}
     </Link>
   );

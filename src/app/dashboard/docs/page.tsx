@@ -6,7 +6,7 @@ export default function DocsPage() {
     <div className="max-w-4xl mx-auto p-8 pt-10">
       <header className="mb-8 border-b border-gray-800 pb-6">
         <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
-          <FileText className="text-[#12b981]" />
+          <FileText className="text-violet-400" />
           Hướng Dẫn API & Tích Hợp
         </h1>
         <p className="text-sm text-gray-400 mt-1">Tài liệu tham khảo cách tạo Mật khẩu ứng dụng WordPress và share Google Docs.</p>
@@ -15,9 +15,9 @@ export default function DocsPage() {
       <div className="space-y-8">
 
         {/* Section 1 */}
-        <section className="bg-[#141b25] border border-gray-800 rounded-xl p-6">
+        <section className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#12b981] text-black text-sm font-bold">1</span>
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white text-black hover:scale-[1.02] shadow-lg shadow-white/5 text-sm font-bold">1</span>
             Tạo Application Password trên WordPress
           </h2>
           <div className="text-gray-400 text-sm space-y-3 leading-relaxed">
@@ -27,15 +27,15 @@ export default function DocsPage() {
               <li>Truy cập menu <strong>Users</strong> (Thành viên) &gt; <strong>Profile</strong> (Hồ sơ).</li>
               <li>Cuộn xuống mục <strong>Application Passwords</strong> (Mật khẩu ứng dụng).</li>
               <li>Nhập tên bất kỳ (VD: "Auto SEO Tool") và nhấn <strong>Add New Application Password</strong>.</li>
-              <li>Copy chuỗi mật khẩu gồm 24 ký tự (VD: <code className="bg-gray-800 px-1 py-0.5 rounded text-[#12b981]">xxxx xxxx xxxx xxxx xxxx xxxx</code>) và dán vào form trên App.</li>
+              <li>Copy chuỗi mật khẩu gồm 24 ký tự (VD: <code className="bg-gray-800 px-1 py-0.5 rounded text-violet-400">xxxx xxxx xxxx xxxx xxxx xxxx</code>) và dán vào form trên App.</li>
             </ul>
           </div>
         </section>
 
         {/* Section 2 */}
-        <section className="bg-[#141b25] border border-gray-800 rounded-xl p-6">
+        <section className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#12b981] text-black text-sm font-bold">2</span>
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white text-black hover:scale-[1.02] shadow-lg shadow-white/5 text-sm font-bold">2</span>
             Cấp Quyền Chia Sẻ Google Docs
           </h2>
           <div className="text-gray-400 text-sm space-y-3 leading-relaxed">
@@ -45,7 +45,7 @@ export default function DocsPage() {
               <li>Nhấn nút <strong>Share</strong> (Chia sẻ) ở góc phải phía trên.</li>
               <li>Ở phần General access (Quyền truy cập chung), đổi từ <em>Restricted</em> (Bị hạn chế) sang <strong>Anyone with the link</strong> (Bất kỳ ai có liên kết).</li>
               <li>Vai trò có thể để là <em>Viewer</em> (Người xem) là đủ.</li>
-              <li>Copy link (Có định dạng <code className="bg-gray-800 px-1 py-0.5 rounded text-[#12b981]">https://docs.google.com/document/d/...</code>) và dán vào Tool.</li>
+              <li>Copy link (Có định dạng <code className="bg-gray-800 px-1 py-0.5 rounded text-violet-400">https://docs.google.com/document/d/...</code>) và dán vào Tool.</li>
             </ul>
           </div>
         </section>

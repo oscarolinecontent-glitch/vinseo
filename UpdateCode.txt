@@ -1,6 +1,6 @@
 //Update Code lên Github
 git add .
-git commit -m "mô tả update"
+git commit -m "đổi màu giao diện"
 git push
 
 // Cập nhật trên local trước để test

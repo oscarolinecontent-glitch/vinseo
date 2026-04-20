@@ -20,9 +20,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null; // Tránh nháy UI
 
   return (
-    <div className="flex h-screen bg-[#0d1218] text-gray-200 font-sans">
+    <div className="flex h-screen bg-slate-950 text-gray-200 font-sans selection:bg-violet-500/30">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto relative bg-gradient-to-br from-[#0d1218] to-[#121820]">
+      <main className="flex-1 overflow-y-auto relative bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.15),rgba(255,255,255,0))]">
         {children}
       </main>
     </div>

@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 import { AuthProvider } from "@/context/AuthContext";
 
 export const metadata: Metadata = {
-  title: "VinSEO Auto Post",
-  description: "SaaS SEO Auto Post System",
+  title: "VinSeo Tools",
+  description: "VinSeo Tools by AH Vincent",
 };
 
 export default function RootLayout({

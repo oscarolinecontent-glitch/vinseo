@@ -56,7 +56,7 @@ export default function ProjectsPage() {
     <div className="max-w-6xl mx-auto p-8 pt-10">
       <header className="mb-8 border-b border-gray-800 pb-6">
         <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
-          <Target className="text-[#12b981]" />
+          <Target className="text-violet-400" />
           Quản Lý Dự Án
         </h1>
         <p className="text-sm text-gray-400 mt-1">Lưu trữ thông tin các website WordPress để cấu hình tool tự động.</p>
@@ -64,9 +64,9 @@ export default function ProjectsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          <div className="bg-[#141b25] border border-gray-800 rounded-xl overflow-hidden">
+          <div className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden">
             <table className="w-full text-left text-sm text-gray-400">
-              <thead className="bg-[#0d1218] text-xs uppercase border-b border-gray-800">
+              <thead className="bg-black/20 text-xs uppercase border-b border-gray-800">
                 <tr>
                   <th className="px-6 py-4">Website</th>
                   <th className="px-6 py-4">Tài khoản WP</th>
@@ -103,25 +103,25 @@ export default function ProjectsPage() {
         </div>
 
         <div>
-          <form onSubmit={handleAdd} className="bg-[#141b25] border border-gray-800 rounded-xl p-6 space-y-4">
+          <form onSubmit={handleAdd} className="bg-white/5 backdrop-blur-md border border-gray-800 rounded-xl p-6 space-y-4">
             <h3 className="font-semibold text-white mb-2">Thêm Dự Án Mới</h3>
             <div>
               <label className="text-xs text-gray-400">Tên Dự Án</label>
-              <input required value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} className="w-full mt-1 bg-[#0d1218] border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-[#12b981] focus:outline-none" placeholder="VD: Blog SEO..." />
+              <input required value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="VD: Blog SEO..." />
             </div>
             <div>
               <label className="text-xs text-gray-400">URL Website</label>
-              <input required type="url" value={newProject.url} onChange={e => setNewProject({...newProject, url: e.target.value})} className="w-full mt-1 bg-[#0d1218] border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-[#12b981] focus:outline-none" placeholder="https://..." />
+              <input required type="url" value={newProject.url} onChange={e => setNewProject({...newProject, url: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="https://..." />
             </div>
             <div>
               <label className="text-xs text-gray-400">WP Username</label>
-              <input required value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-[#0d1218] border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-[#12b981] focus:outline-none" />
+              <input required value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs text-gray-400">App Password</label>
-              <input required type="password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-[#0d1218] border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-[#12b981] focus:outline-none" />
+              <input required type="password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-black/20 border border-gray-700 rounded-md px-3 py-2 text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
-            <button type="submit" className="w-full flex items-center justify-center gap-2 bg-[#12b981] text-black font-bold py-2 rounded-md hover:bg-[#0ea271] transition-colors mt-4">
+            <button type="submit" className="w-full flex items-center justify-center gap-2 bg-white text-black hover:scale-[1.02] shadow-lg shadow-white/5 font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
               <Plus size={16} /> Thêm Dự Án
             </button>
           </form>
