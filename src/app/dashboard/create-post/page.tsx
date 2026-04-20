@@ -1,0 +1,326 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Send, FileText, Settings, Key, Link as LinkIcon, CheckCircle2, AlertCircle, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+
+type PostItem = {
+  id: string;
+  gdoc_url: string;
+  postType: 'post' | 'page' | 'category';
+  categoryId: string;
+  status: 'draft' | 'publish';
+  title: string;
+  meta_desc: string;
+  resultStatus?: 'pending' | 'loading' | 'success' | 'error';
+  resultMessage?: string;
+  resultUrl?: string;
+};
+
+export default function CreatePostPage() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{success: boolean, message: string, user?: string} | null>(null);
+  
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+
+  const [siteConfig, setSiteConfig] = useState({
+    wp_url: '',
+    wp_user: '',
+    wp_app_pass: ''
+  });
+
+  const [posts, setPosts] = useState<PostItem[]>([
+    { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }
+  ]);
+
+  useEffect(() => {
+    const fetchProjects = async () => {
+      if (!user) return;
+      const q = collection(db, 'users', user.uid, 'projects');
+      const querySnapshot = await getDocs(q);
+      const loaded: any[] = [];
+      querySnapshot.forEach((doc) => {
+        loaded.push({ id: doc.id, ...doc.data() });
+      });
+      setProjects(loaded);
+    };
+    fetchProjects();
+  }, [user]);
+
+  const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const pId = e.target.value;
+    setSelectedProjectId(pId);
+    setCheckResult(null);
+    
+    if (pId) {
+      const p = projects.find(x => x.id.toString() === pId);
+      if (p) {
+        setSiteConfig({ wp_url: p.url, wp_user: p.wp_user, wp_app_pass: p.wp_app_pass });
+      }
+    } else {
+      setSiteConfig({ wp_url: '', wp_user: '', wp_app_pass: '' });
+    }
+  };
+
+  const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSiteConfig({ ...siteConfig, [e.target.name]: e.target.value });
+    setCheckResult(null);
+  };
+
+  const checkConnection = async () => {
+    if (!siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
+      setCheckResult({ success: false, message: "Vui lòng nhập đủ thông tin WP" });
+      return;
+    }
+    setChecking(true);
+    try {
+      const res = await fetch('/api/wp/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteConfig })
+      });
+      const data = await res.json();
+      setCheckResult(data);
+    } catch (err: any) {
+      setCheckResult({ success: false, message: err.message });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const updatePost = (id: string, field: keyof PostItem, value: string) => {
+    setPosts(posts.map(p => p.id === id ? { ...p, [field]: value } : p));
+  };
+
+  const addPost = () => {
+    setPosts([...posts, { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }]);
+  };
+
+  const removePost = (id: string) => {
+    if (posts.length > 1) {
+      setPosts(posts.filter(p => p.id !== id));
+    }
+  };
+
+  const handleBulkSubmit = async () => {
+    if (!siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
+      alert("Vui lòng cấu hình kết nối WP ở Bước 1!");
+      return;
+    }
+
+    setLoading(true);
+
+    for (let i = 0; i < posts.length; i++) {
+      const p = posts[i];
+      if (!p.gdoc_url) continue;
+
+      // Update status to loading
+      updatePost(p.id, 'resultStatus', 'loading');
+
+      try {
+        const res = await fetch('/api/wp/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteConfig,
+            postData: {
+              gdoc_url: p.gdoc_url,
+              title: p.title,
+              postType: p.postType,
+              status: p.status,
+              categoryId: parseInt(p.categoryId),
+              meta_desc: p.meta_desc,
+            }
+          })
+        });
+
+        const data = await res.json();
+        
+        if (data.success) {
+          setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'success', resultMessage: 'Đăng thành công!', resultUrl: data.url } : item));
+        } else {
+          setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: data.message } : item));
+        }
+
+      } catch (err: any) {
+        setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: err.message } : item));
+      }
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto p-8 pt-10">
+      <header className="mb-8 border-b border-gray-800 pb-6">
+        <h1 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
+          <FileText className="text-[#12b981]" />
+          Đăng Bài & Nội Dung Hàng Loạt
+        </h1>
+        <p className="text-sm text-gray-400 mt-1">Cấu hình WordPress và nhập danh sách link Google Docs để parse & post tự động.</p>
+      </header>
+
+      <div className="space-y-8">
+        
+        {/* Section 1: WP Config */}
+        <div className="bg-[#141b25] border border-gray-800 rounded-xl p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Settings size={18} className="text-blue-400" />
+              1. Cấu hình WordPress Destination
+            </h2>
+            <button onClick={checkConnection} disabled={checking} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-700 transition">
+              {checking ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} className={checkResult?.success ? 'text-[#12b981]' : ''} />}
+              {checking ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
+            </button>
+          </div>
+
+          {checkResult && (
+            <div className={`mb-4 p-3 rounded text-sm flex items-start gap-2 ${checkResult.success ? 'bg-[#0e271e] text-[#12b981]' : 'bg-red-950/40 text-red-400'}`}>
+              {checkResult.success ? <CheckCircle2 size={18} className="mt-0.5 shrink-0" /> : <AlertCircle size={18} className="mt-0.5 shrink-0" />}
+              <span>{checkResult.message} {checkResult.user && `(User: ${checkResult.user})`}</span>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 block">Chọn Website đã lưu (Hoặc nhập thủ công)</label>
+            <select 
+              value={selectedProjectId} 
+              onChange={handleProjectChange} 
+              className="w-full bg-[#0d1218] border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-[#12b981] transition"
+            >
+              <option value="">-- Nhập thủ công bên dưới --</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id.toString()}>{p.name} ({p.url})</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">URL Website</label>
+              <input type="url" name="wp_url" value={siteConfig.wp_url} onChange={handleConfigChange} placeholder="https://domain.com" className="w-full bg-[#0d1218] border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-[#12b981] transition" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">Username</label>
+              <input type="text" name="wp_user" value={siteConfig.wp_user} onChange={handleConfigChange} placeholder="admin" className="w-full bg-[#0d1218] border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-[#12b981] transition" />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                 <Key size={12} /> Application Password
+              </label>
+              <input type="password" name="wp_app_pass" value={siteConfig.wp_app_pass} onChange={handleConfigChange} placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" className="w-full bg-[#0d1218] border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:border-[#12b981] transition" />
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Google Docs & Content List */}
+        <div className="bg-[#141b25] border border-gray-800 rounded-xl p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <LinkIcon size={18} className="text-[#12b981]" />
+              2. Danh sách Nội Dung (Google Docs)
+            </h2>
+            <button onClick={addPost} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-700 transition">
+              <Plus size={14} /> Thêm bài
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {posts.map((post, index) => (
+              <div key={post.id} className="p-4 bg-[#0d1218] border border-gray-800 rounded-lg relative group">
+                {/* Delete button */}
+                {posts.length > 1 && (
+                  <button onClick={() => removePost(post.id)} className="absolute top-4 right-4 text-gray-600 hover:text-red-400 transition-colors">
+                    <Trash2 size={16} />
+                  </button>
+                )}
+                
+                <h3 className="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider">Mục #{index + 1}</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-[11px] font-medium text-gray-500 uppercase">Link Google Docs</label>
+                    <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="https://docs.google.com/document/d/..." className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-gray-500 uppercase">Định dạng (Format)</label>
+                    <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value)} className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition">
+                      <option value="post">Bài viết (Post)</option>
+                      <option value="page">Trang (Page)</option>
+                      <option value="category">Danh mục (Category)</option>
+                    </select>
+                  </div>
+                  {post.postType === 'post' && (
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-gray-500 uppercase">Chuyên mục (ID)</label>
+                      <input type="number" value={post.categoryId} onChange={(e) => updatePost(post.id, 'categoryId', e.target.value)} className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-gray-500 uppercase">Tiêu đề (Tùy chọn ghi đè)</label>
+                    <input type="text" value={post.title} onChange={(e) => updatePost(post.id, 'title', e.target.value)} placeholder="Tự động parse nếu rỗng" className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-gray-500 uppercase">Trạng thái</label>
+                    <select value={post.status} onChange={(e) => updatePost(post.id, 'status', e.target.value)} className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition">
+                      <option value="draft">Nháp (Draft)</option>
+                      <option value="publish">Công khai (Publish)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-gray-500 uppercase">Meta Description</label>
+                    <input type="text" value={post.meta_desc} onChange={(e) => updatePost(post.id, 'meta_desc', e.target.value)} className="w-full bg-[#141b25] border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#12b981] transition" />
+                  </div>
+                </div>
+
+                {/* Trạng thái Result */}
+                {post.resultStatus && (
+                  <div className={`mt-3 p-2 rounded text-xs flex items-center gap-2 
+                    ${post.resultStatus === 'loading' ? 'text-blue-400 bg-blue-900/20' : 
+                      post.resultStatus === 'success' ? 'text-[#12b981] bg-[#12b981]/10' : 
+                      'text-red-400 bg-red-900/20'}`}>
+                    
+                    {post.resultStatus === 'loading' && <RefreshCw size={14} className="animate-spin" />}
+                    {post.resultStatus === 'success' && <CheckCircle2 size={14} />}
+                    {post.resultStatus === 'error' && <AlertCircle size={14} />}
+                    
+                    <span>{post.resultMessage || 'Đang xử lý...'}</span>
+                    {post.resultUrl && (
+                      <a href={post.resultUrl} target="_blank" rel="noreferrer" className="underline ml-2">Xem bài</a>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Submit Button */}
+        <div className="flex justify-end pt-2">
+          <button 
+            onClick={handleBulkSubmit}
+            disabled={loading}
+            className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold text-white shadow-lg transition-all ${
+              loading 
+              ? 'bg-gray-600 cursor-not-allowed' 
+              : 'bg-gradient-to-r from-[#12b981] to-[#0ea271] hover:shadow-[#12b981]/40 hover:-translate-y-0.5'
+            }`}
+          >
+            {loading ? 'Hệ thống đang chạy...' : `Đăng Hàng Loạt (${posts.length} Mục)`}
+            {!loading && <Send size={18} />}
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
