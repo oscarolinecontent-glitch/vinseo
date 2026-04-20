@@ -174,8 +174,8 @@ export default function CreatePostPage() {
               <Settings size={18} className="text-blue-400" />
               1. Cấu hình WordPress Destination
             </h2>
-            <button onClick={checkConnection} disabled={checking} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
-              {checking ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} className={checkResult?.success ? 'text-violet-400' : ''} />}
+            <button onClick={checkConnection} disabled={checking} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
+              {checking ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} className={checkResult?.success ? 'text-violet-500 dark:text-violet-400' : ''} />}
               {checking ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
             </button>
           </div>
@@ -225,7 +225,7 @@ export default function CreatePostPage() {
               <LinkIcon size={18} className="text-violet-400" />
               2. Danh sách Nội Dung (Google Docs)
             </h2>
-            <button onClick={addPost} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
+            <button onClick={addPost} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
               <Plus size={14} /> Thêm bài
             </button>
           </div>

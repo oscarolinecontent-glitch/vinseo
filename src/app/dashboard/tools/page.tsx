@@ -37,10 +37,10 @@ export default function ToolsPage() {
           <div key={tool.id} className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6 flex flex-col justify-between hover:border-gray-600 transition-colors">
             <div>
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-gray-800/50 rounded-lg">
+                <div className="p-3 bg-gray-100 dark:bg-gray-800/50 rounded-lg">
                   {tool.icon}
                 </div>
-                <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase ${tool.status === 'Sẵn sàng' ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+                <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase ${tool.status === 'Sẵn sàng' ? 'bg-violet-500/20 text-violet-600 dark:text-violet-400' : 'bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
                   {tool.status}
                 </span>
               </div>
@@ -49,7 +49,7 @@ export default function ToolsPage() {
             </div>
             
             {tool.status === 'Sẵn sàng' ? (
-              <Link href={tool.link} className="flex items-center text-sm font-semibold text-violet-400 hover:text-fuchsia-400">
+              <Link href={tool.link} className="flex items-center text-sm font-semibold text-violet-600 dark:text-violet-400 hover:text-fuchsia-600 dark:hover:text-fuchsia-400">
                 Sử dụng công cụ <ArrowRight size={16} className="ml-1" />
               </Link>
             ) : (

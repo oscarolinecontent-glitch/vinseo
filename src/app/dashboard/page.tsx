@@ -30,7 +30,7 @@ export default function DashboardOverview() {
           <p className="text-sm text-gray-600 dark:text-gray-400">Tổng quan Hệ Thống Tự Động SEO</p>
         </div>
         <Link href="/dashboard/docs">
-          <button className="flex gap-2 items-center bg-gray-800 hover:bg-gray-700 text-gray-700 dark:text-gray-300 px-4 py-2 rounded border border-gray-300 dark:border-gray-700 transition">
+          <button className="flex gap-2 items-center bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 px-4 py-2 rounded border border-gray-300 dark:border-gray-700 transition">
              <FileText size={16} /> Hướng dẫn tích hợp WP
           </button>
         </Link>
@@ -46,7 +46,7 @@ export default function DashboardOverview() {
            <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-fuchsia-400 uppercase drop-shadow-md tracking-tight mb-2">VinSEO Auto-Tool Kit</h2>
            <h3 className="text-2xl text-slate-900 dark:text-white font-medium mb-4">Kết xuất & Chuyển hoá Docs Lên WordPress 100% tự động.</h3>
            <Link href="/dashboard/create-post">
-             <button className="bg-white text-black px-6 py-3 font-bold rounded-xl shadow-lg shadow-white/10 hover:shadow-white/20 hover:scale-[1.02] transition-all flex items-center gap-2">
+             <button className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white px-6 py-3 font-bold rounded-xl shadow-lg shadow-violet-500/30 hover:scale-[1.02] transition-all flex items-center gap-2">
                Khởi Tạo Dòng Flow Đăng Mới <PlayCircle size={20}/>
              </button>
            </Link>
@@ -94,7 +94,7 @@ export default function DashboardOverview() {
              <button className="text-violet-400 hover:underline">Xem Tất cả Bảng điều khiển Sheets cũ</button>
            </div>
            
-           <div className="h-[200px] w-full rounded-xl bg-gray-900/40 border border-gray-200 dark:border-gray-800/80 flex items-center justify-center flex-col text-gray-500 dark:text-gray-400">
+           <div className="h-[200px] w-full rounded-xl bg-gray-100 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800/80 flex items-center justify-center flex-col text-gray-500 dark:text-gray-400">
              <Briefcase size={32} className="opacity-20 mb-3" />
              <p className="text-sm font-medium">Bạn chưa đẩy link Document mới nào cả.</p>
              <Link href="/dashboard/create-post">
