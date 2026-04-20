@@ -17,6 +17,7 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - [x] Chuyển đổi dữ liệu từ LocalStorage sang Cloud Firestore.
 - [x] Bảo vệ Route (Chưa đăng nhập thì đá về `/login`).
 - [x] Setup GitHub Repo và Vercel Auto-deploy.
+- [x] Tùy chỉnh thành công nội dung giao diện Login và Dashboard.
 
 ## 3. Cấu trúc Database (Firestore)
 - **Rules:** Đang ở chế độ Test Mode.
@@ -29,3 +30,5 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - **Giai đoạn 1:** Xây dựng module trích xuất dữ liệu từ Google Docs / Google Sheets.
 - **Giai đoạn 2:** Viết API/Script tự động push Nội dung + Hình ảnh (Media) lên WordPress qua Application Passwords (REST API).
 - **Giai đoạn 3:** Hoàn thiện giao diện quản lý tiến trình đăng bài (Dashboard UI).
+ 
+ 
