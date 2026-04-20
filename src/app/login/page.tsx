@@ -33,7 +33,8 @@ export default function LoginPage() {
         </button>
 
         <p className="mt-6 text-xs text-gray-500">
-          Dễ dàng sử dụng, bảo mật tuyệt đối @copyright 2026 - AH Vincent
+          Dễ dàng sử dụng, bảo mật tuyệt đối
+          <br />@copyright by AH Vincent
         </p>
       </div>
     </div>
