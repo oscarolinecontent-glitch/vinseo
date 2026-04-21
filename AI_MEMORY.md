@@ -17,7 +17,7 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - [x] Chuyển đổi dữ liệu từ LocalStorage sang Cloud Firestore.
 - [x] Bảo vệ Route (Chưa đăng nhập thì đá về `/login`).
 - [x] Setup GitHub Repo và Vercel Auto-deploy.
-- [x] Tùy chỉnh thành công nội dung giao diện Login và Dashboard.
+- [x] Tùy chỉnh thành công nội dung giao diện sáng tối Login và Dashboard.
 
 ## 3. Cấu trúc Database (Firestore)
 - **Rules:** Đang ở chế độ Test Mode.

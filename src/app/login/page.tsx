@@ -30,9 +30,9 @@ export default function LoginPage() {
 
         <button
           onClick={signInWithGoogle}
-          className="w-full flex items-center justify-center gap-3 w-full flex items-center justify-center gap-3 py-3.5 px-4 rounded-xl transition-all duration-300 font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all"
+          className="w-full flex items-center justify-center gap-3 py-3.5 px-4 rounded-xl font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all duration-300"
         >
-          <LogIn size={20} className="text-violet-600" />
+          <LogIn size={20} className="text-white" />
           Đăng nhập bằng tài khoản Google
         </button>
 
