@@ -1,0 +1,533 @@
+// 🔥 BỘ NHỚ TOÀN CỤC CHỐNG TRÙNG ẢNH (Phải đặt ở ngoài cùng, trên chữ function)
+let globalUsedMediaIds = [];
+
+// -------------------------------------------------------------
+// 1. HÀM CHÍNH (MASTER) CHẠY VÒNG LẶP ĐĂNG BÀI
+// -------------------------------------------------------------
+function tool7_masterPostProcess() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues();
+
+  const CATEGORY_MAP = { "Mặc định": 1 };
+  let catPairs = WP_CAT_RAW.split(",");
+  for (let c of catPairs) {
+    let parts = c.split(":");
+    if (parts.length === 2) {
+      let catName = parts[0].trim();
+      let catId = parts[1].trim();
+      if (catName && catId) {
+        CATEGORY_MAP[catName] = catId;
+      }
+    }
+  }
+
+  // Bắt đầu vòng lặp quét từng dòng trong Google Sheets
+  for (let i = 0; i < data.length; i++) {
+    let rawKey        = String(data[i][0] || "").trim();
+    let docUrl        = String(data[i][1] || "").trim();   
+    let categoryName  = String(data[i][2] || "").trim();
+    let postStatusRaw = String(data[i][3] || "").trim();   
+    let runStatus     = String(data[i][4] || "").trim();
+    
+    let postTypeRaw = "post";
+    for (let c = 3; c < data[i].length; c++) {
+      let cellText = String(data[i][c] || "").trim().toLowerCase();
+      if (cellText === "page") postTypeRaw = "page";
+      if (cellText === "post") postTypeRaw = "post";
+    }
+    
+    // Bỏ qua dòng trống hoặc dòng đã đăng
+    if(!rawKey || !docUrl.includes("docs.google.com")) continue;
+    if(runStatus.includes("✅")) {
+      Logger.log("⏭️ Bỏ qua bài đã đăng: " + rawKey);
+      continue;
+    }
+
+    // 🔥 NÂNG CẤP TẠI ĐÂY: Xóa sạch sổ đen khi bắt đầu chạy một bài viết mới
+    globalUsedMediaIds = [];
+
+    let categoryId = CATEGORY_MAP[categoryName] || CATEGORY_MAP["Mặc định"] || 1;
+    let finalPostStatus = (postStatusRaw.toLowerCase() === "public" || postStatusRaw.toLowerCase() === "publish") ? "publish" : "draft";
+    let finalPostType = (postTypeRaw === "page") ? "page" : "post";
+
+    try {
+      const docIdMatch = docUrl.match(/[-\w]{25,}/);
+      if (!docIdMatch) {
+         sheet.getRange(i + 1, 5).setValue("❌ Lỗi URL Google Docs");
+         continue;
+      }
+      Logger.log("Đang xử lý bài ở dòng " + (i + 1) + "...");
+      
+      const slugKey = convertToSlug(rawKey); // Slug này vẫn dùng làm URL bài viết
+      const finalData = buildArticleContent(docIdMatch[0], slugKey);
+
+      // 🔥 NÂNG CẤP: Tìm Thumbnail dựa trên H1 thay vì Keyword
+      const h1Slug = convertToSlug(finalData.title);
+      const thumbData = getMediaDataByFilename(h1Slug + IMAGE_EXTENSION);
+      const thumbnailId = thumbData ? thumbData.id : null;
+
+      if(!thumbnailId) {
+        Logger.log("⚠️ Cảnh báo: Không tìm thấy ảnh Thumbnail tên '" + h1Slug + ".webp' trong Thư viện WP.");
+        let generatedThumbUrl = `${WP_IMAGE_FOLDER}/${h1Slug}${IMAGE_EXTENSION}`;
+        finalData.content = `<p style="text-align: center;"><img src="${generatedThumbUrl}" alt="${finalData.title}" class="size-full" /></p>\n` + finalData.content;
+      } else {
+        updateMediaMetadata(thumbnailId, finalData.title);
+        // Update thẻ SEO của ảnh bìa bằng chính tiêu đề H1
+      }
+      
+      const responseWP = sendFullPostToWP(finalData, thumbnailId, slugKey, rawKey, categoryId, finalPostStatus, finalPostType);
+
+      if (responseWP && responseWP.success) {
+        Logger.log("✅ Đã đăng thành công Bài: " + rawKey);
+        sheet.getRange(i + 1, 5).setValue("✅"); 
+        if (responseWP.postLink) {
+          sheet.getRange(i + 1, 6).setValue(responseWP.postLink);
+        }
+      } else {
+        let err = responseWP ? responseWP.errorMsg : "Lỗi không xác định";
+        Logger.log("❌ Lỗi Bài: " + rawKey + " -> " + err);
+        sheet.getRange(i + 1, 5).setValue("❌ Lỗi: " + err);
+      }
+      
+      Utilities.sleep(8000);
+
+    } catch (e) {
+      sheet.getRange(i + 1, 5).setValue("❌ Lỗi Code: " + e.message);
+      Logger.log("❌ Lỗi dòng " + (i + 1) + ": " + e.message);
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// 2. HÀM CHUYỂN ĐỔI CHỮ THÀNH SLUG (Dọn dẹp siêu sạch)
+// -------------------------------------------------------------
+function convertToSlug(str) {
+  if (!str) return "";
+  str = String(str).toLowerCase().trim();
+  str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
+  str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
+  str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
+  str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
+  str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
+  str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
+  str = str.replace(/đ/g, "d");
+  str = str.replace(/[^a-z0-9 -]/g, "");
+  str = str.replace(/\s+/g, "-");        
+  str = str.replace(/-+/g, "-");         
+  return str.replace(/^-+|-+$/g, "");
+}
+
+// -------------------------------------------------------------
+// 3. HÀM TÌM ID ẢNH TỪ WP (CHỐNG RỚT MẠNG GOOGLE 100%)
+// -------------------------------------------------------------
+function getMediaDataByFilename(filename) {
+  let cleanName = filename.replace(".webp", "").replace(".jpg", "").replace(".png", "");
+  
+  const options = {
+    method: "GET",
+    headers: { 
+      "Authorization": "Basic " + Utilities.base64Encode(WP_USER + ":" + WP_APP_PASSWORD),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    },
+    muteHttpExceptions: true
+  };
+
+  // 🔥 VŨ KHÍ MỚI: Hàm gọi API kiên nhẫn thử lại 3 lần nếu Google rớt mạng
+  function fetchWithRetry(url) {
+    for (let i = 1; i <= 3; i++) {
+      try {
+        return UrlFetchApp.fetch(url, options);
+      } catch (e) {
+        if (i === 3) return null; // Lần 3 vẫn xịt thì âm thầm trả về null, tuyệt đối ko báo lỗi đỏ làm chết code
+        Utilities.sleep(2000); // Nghỉ 2 giây rồi thử lại
+      }
+    }
+  }
+
+  // --- BƯỚC 1: TÌM CHÍNH XÁC THEO SLUG ---
+  const urlSlug = WP_URL + "/wp-json/wp/v2/media?slug=" + encodeURIComponent(cleanName);
+  const resSlug = fetchWithRetry(urlSlug);
+  
+  if (resSlug && resSlug.getResponseCode() === 200) {
+    const dataSlug = JSON.parse(resSlug.getContentText());
+    if (dataSlug && dataSlug.length > 0) {
+      let matchedId = dataSlug[0].id;
+      if (!globalUsedMediaIds.includes(matchedId)) {
+        globalUsedMediaIds.push(matchedId);
+        return { id: matchedId, url: dataSlug[0].source_url, w: dataSlug[0].media_details.width, h: dataSlug[0].media_details.height };
+      }
+    }
+  }
+
+  // --- BƯỚC 2: TÌM MỜ BẰNG 5 TỪ ĐẦU ---
+  let wordsArray = cleanName.split("-");
+  let shortName = wordsArray.length > 5 ? wordsArray.slice(0, 5).join("-") : cleanName;
+  
+  const urlSearch = WP_URL + "/wp-json/wp/v2/media?search=" + encodeURIComponent(shortName);
+  const resSearch = fetchWithRetry(urlSearch);
+  
+  if (resSearch && resSearch.getResponseCode() === 200) {
+    const dataSearch = JSON.parse(resSearch.getContentText());
+    if (dataSearch && dataSearch.length > 0) {
+      let availableMedia = dataSearch.filter(d => !globalUsedMediaIds.includes(d.id));
+      if (availableMedia.length > 0) {
+        for(let d of availableMedia) {
+          if(d.source_url && d.source_url.includes(shortName)) {
+            globalUsedMediaIds.push(d.id);
+            return { id: d.id, url: d.source_url, w: d.media_details.width, h: d.media_details.height };
+          }
+        }
+        globalUsedMediaIds.push(availableMedia[0].id);
+        return { id: availableMedia[0].id, url: availableMedia[0].source_url, w: availableMedia[0].media_details.width, h: availableMedia[0].media_details.height };
+      }
+    }
+  }
+  
+  return null;
+}
+// -------------------------------------------------------------
+// 4. HÀM RÁP ẢNH TỰ ĐỘNG + TRÍCH XUẤT NỘI DUNG
+// -------------------------------------------------------------
+function buildArticleContent(docId, slugKey) {
+  const doc = DocumentApp.openById(docId);
+  const body = doc.getBody();
+  const numChildren = body.getNumChildren();
+  
+  let metaDesc = "";
+  let h1Title = "";
+  let contentStartIndex = 3;
+  
+  let textBlocks = [];
+  for (let i = 0; i < Math.min(8, numChildren); i++) {
+    const child = body.getChild(i);
+    if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
+      let t = child.asText().getText().trim();
+      if (t.length > 2 && !t.includes("drive.google")) {
+        textBlocks.push({ index: i, text: t });
+      }
+    }
+  }
+
+  if (textBlocks.length >= 2) {
+    metaDesc = textBlocks[0].text;
+    h1Title = textBlocks[1].text;
+    contentStartIndex = textBlocks[1].index + 1; 
+  }
+
+  let htmlBody = "";
+  let previousParagraphWasHeading = false;
+  let inList = false;
+  let currentListType = "";
+  
+  // 🔥 THÊM BIẾN NÀY: Dùng để nhớ tiêu đề gần nhất
+  let lastHeadingText = ""; 
+
+  for (let i = contentStartIndex; i < numChildren; i++) {
+    const child = body.getChild(i);
+    const type = child.getType();
+
+    if (type === DocumentApp.ElementType.LIST_ITEM) {
+        // ... (Giữ nguyên code List cũ của bạn) ...
+    } 
+    else if (type === DocumentApp.ElementType.PARAGRAPH) {
+      if (inList) {
+        htmlBody += `</${currentListType}>\n`;
+        inList = false;
+      }
+
+      let p = child.asParagraph();
+      let text = p.getText().trim();
+      if (text.length === 0) continue; 
+
+      let pHeading = p.getHeading();
+      let isCurrentHeading = [
+        DocumentApp.ParagraphHeading.HEADING1,
+        DocumentApp.ParagraphHeading.HEADING2,
+        DocumentApp.ParagraphHeading.HEADING3,
+        DocumentApp.ParagraphHeading.HEADING4
+      ].includes(pHeading);
+
+      // 🔥 LƯU LẠI NỘI DUNG HEADING NẾU ĐANG ĐỌC HEADING
+      if (isCurrentHeading) {
+          lastHeadingText = text;
+      }
+
+      let isNormalText = (pHeading === DocumentApp.ParagraphHeading.NORMAL || pHeading === DocumentApp.ParagraphHeading.SUBTITLE);
+
+      // 🔥 BỘ LỌC CHÚ THÍCH MỚI
+      let isCentered = (p.getAlignment() === DocumentApp.HorizontalAlignment.CENTER);
+      
+      // Kiểm tra xem đoạn text này có giống y hệt Heading gần nhất không
+      let isMatchLastHeading = (lastHeadingText !== "" && text.toLowerCase() === lastHeadingText.toLowerCase());
+
+      // Chốt hạ: Chỉ nhận là Ảnh nếu Căn giữa HOẶC Nội dung giống hệt Heading
+      let isShortCaption = isNormalText && (isCentered || isMatchLastHeading);
+
+      if (isShortCaption) {
+        let captionSlug = convertToSlug(text);
+        // ... (Giữ nguyên phần code bốc ảnh ở dưới của bạn) ...
+        let generatedImageUrl = `${WP_IMAGE_FOLDER}/${captionSlug}${IMAGE_EXTENSION}`;
+        Logger.log("🔥 Đang ráp ảnh theo Caption: " + generatedImageUrl);
+        
+        let mediaData = getMediaDataByFilename(`${captionSlug}${IMAGE_EXTENSION}`);
+        if (mediaData && mediaData.id) {
+          updateMediaMetadata(mediaData.id, text);
+          let imgWidth = mediaData.w ? ` width="${mediaData.w}"` : "";
+          let imgHeight = mediaData.h ? ` height="${mediaData.h}"` : "";
+          let captionWidth = mediaData.w ? mediaData.w : 1200; 
+          
+          let actualImageUrl = mediaData.url ? mediaData.url : generatedImageUrl;
+          
+          htmlBody += `\n[caption id="attachment_${mediaData.id}" align="aligncenter" width="${captionWidth}"]<img src="${actualImageUrl}" alt="${text}" class="wp-image-${mediaData.id} size-full"${imgWidth}${imgHeight} /> ${text}[/caption]\n\n`;
+        } else {
+          htmlBody += `\n[caption align="aligncenter"]<img src="${generatedImageUrl}" alt="${text}" class="size-full" /> ${text}[/caption]\n\n`;
+        }
+          
+        previousParagraphWasHeading = false;
+      } else {
+        htmlBody += convertToHtml(p) + "\n"; 
+        previousParagraphWasHeading = isCurrentHeading;
+      }
+    }
+  }
+
+  if (inList) {
+    htmlBody += `</${currentListType}>\n`;
+  }
+
+  return { title: h1Title, content: htmlBody, meta: metaDesc };
+}
+
+// -------------------------------------------------------------
+// 5. HÀM TẠO HTML
+// -------------------------------------------------------------
+function convertToHtml(paragraph) {
+    const textStr = paragraph.getText().trim();
+    if (textStr === "") return ""; 
+
+    const heading = paragraph.getHeading();
+    let openTag = '<p style="text-align: justify;">'; let closeTag = "</p>";
+    
+    if (heading === DocumentApp.ParagraphHeading.HEADING1) { openTag = '<h2 style="text-align: justify;">'; closeTag = "</h2>"; } 
+    if (heading === DocumentApp.ParagraphHeading.HEADING2) { openTag = '<h2 style="text-align: justify;">'; closeTag = "</h2>"; }
+    if (heading === DocumentApp.ParagraphHeading.HEADING3) { openTag = '<h3 style="text-align: justify;">'; closeTag = "</h3>"; }
+    if (heading === DocumentApp.ParagraphHeading.HEADING4) { openTag = '<h4 style="text-align: justify;">'; closeTag = "</h4>"; }
+
+    return openTag + extractFormattedText(paragraph) + closeTag;
+}
+
+function extractFormattedText(element) {
+    const textStr = element.getText().trim();
+    if (textStr === "") return ""; 
+
+    const textObj = element.editAsText();
+    const indices = textObj.getTextAttributeIndices(); 
+    let innerHtml = "";
+    
+    for (let i = 0; i < indices.length; i++) {
+        let startIndex = indices[i];
+        let endIndex = (i + 1 < indices.length) ? indices[i + 1] : textStr.length;
+        if(startIndex >= endIndex) continue;
+        
+        let segment = textStr.substring(startIndex, endIndex);
+        segment = segment.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        if (textObj.isBold(startIndex)) segment = `<strong>${segment}</strong>`;
+        if (textObj.isItalic(startIndex)) segment = `<em>${segment}</em>`;
+        
+        let linkUrl = textObj.getLinkUrl(startIndex);
+        if (linkUrl) segment = `<a href="${linkUrl}" target="_blank" rel="noopener">${segment}</a>`;
+
+        innerHtml += segment;
+    }
+
+    return innerHtml;
+}
+
+// -------------------------------------------------------------
+// 6. HÀM ĐẨY BÀI SANG WORDPRESS
+// -------------------------------------------------------------
+function sendFullPostToWP(data, thumbId, slugKey, rawKey, categoryId, finalPostStatus, finalPostType) {
+  const isPage = (finalPostType === "page");
+  const endpoint = isPage ? "/wp-json/wp/v2/pages" : "/wp-json/wp/v2/posts";
+  const url = WP_URL + endpoint;
+  
+ let payload = {
+    title: data.title,
+    content: data.content,
+    slug: slugKey,      
+    status: finalPostStatus,
+    // 🔥 CẬP NHẬT: Đưa excerpt ra ngoài để dùng cho cả Page
+    excerpt: data.meta, 
+    meta: {
+      "rank_math_description": data.meta,
+      // Mẹo Builder: Đẩy luôn Tiêu đề H1 làm Focus Keyword để tối ưu SEO
+      "rank_math_focus_keyword": data.title 
+    }
+  };
+
+  // Cấu hình riêng cho Post (Chỉ Post mới có Category)
+  if (!isPage) {
+    payload.categories = [categoryId]; 
+  }
+  
+  if (thumbId) payload.featured_media = thumbId;
+
+  const options = {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + Utilities.base64Encode(WP_USER + ":" + WP_APP_PASSWORD),
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  
+  const response = UrlFetchApp.fetch(url, options);
+  const code = response.getResponseCode();
+  
+  if (code === 201 || code === 200) {
+    const responseData = JSON.parse(response.getContentText());
+    return { success: true, postLink: responseData.link };
+  } else {
+    const errorJson = JSON.parse(response.getContentText());
+    return { success: false, errorMsg: errorJson.message || ("Code WP bị tịt ở cổng: " + code) };
+  }
+}
+
+// -------------------------------------------------------------
+// 7. HÀM CẬP NHẬT THÔNG TIN SEO CỦA ẢNH
+// -------------------------------------------------------------
+function updateMediaMetadata(mediaId, text) {
+  if (!mediaId) return;
+  const url = WP_URL + "/wp-json/wp/v2/media/" + mediaId;
+  const payload = {
+    alt_text: text, 
+    caption: text,  
+    description: text 
+  };
+  
+  const options = {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + Utilities.base64Encode(WP_USER + ":" + WP_APP_PASSWORD),
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  
+  UrlFetchApp.fetch(url, options); 
+}
+
+// =============================================================
+// PHẦN UI - BẢNG ĐIỀU KHIỂN
+// =============================================================
+// (Lưu ý: Nếu bạn đã có phần showConfigSidebar ở file Main.gs hoặc Tool_5.gs rồi 
+// thì bạn có thể xóa toàn bộ phần UI bên dưới đi để code nhẹ hơn. 
+// Tôi vẫn giữ lại ở đây để đảm bảo code chạy ngay mà không báo lỗi).
+
+function showConfigSidebar() {
+  var html = HtmlService.createHtmlOutput(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <base target="_top">
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 15px; color: #333; }
+          .group { margin-bottom: 20px; }
+          label { font-weight: bold; display: block; margin-bottom: 8px; font-size: 14px; }
+          input, textarea { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ced4da; border-radius: 6px; background-color: #f8f9fa; font-family: inherit; }
+          input:focus, textarea:focus { border-color: #80bdff; background-color: #fff; outline: 0; box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25); }
+          button { width: 100%; padding: 12px; background-color: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          button:hover { background-color: #218838; transform: translateY(-2px); box-shadow: 0 6px 10px rgba(0,0,0,0.15); }
+          .footer { margin-top: 25px; font-size: 12px; color: #888; text-align: justify; line-height: 1.5; padding: 10px; border-left: 4px solid #17a2b8; background: #eef9f9; }
+          hr { margin: 25px 0; border: 0; border-top: 1px solid #eee; }
+        </style>
+      </head>
+      <body>
+        <h2 style="color: #0056b3; margin-top:0; border-bottom: 2px solid #ccc; padding-bottom: 10px;">⚙️ Thiết Lập Server</h2>
+        
+        <div class="group">
+          <label>1. Đường dẫn Website (URL WP)</label>
+          <input type="text" id="wp_url" placeholder="VD: https://domain.com">
+        </div>
+        
+        <div class="group">
+          <label>2. Tài khoản Đăng nhập</label>
+          <input type="text" id="wp_user" placeholder="Nhập tên đăng nhập Server">
+        </div>
+        
+        <div class="group">
+          <label>3. Mật khẩu Ứng dụng (App Pass)</label>
+          <input type="password" id="wp_pass" placeholder="xxxx xxxx xxxx xxxx">
+        </div>
+
+        <div class="group">
+          <label>4. Bản Đồ ID Chuyên Mục</label>
+          <p style="font-size:11px; margin:0 0 5px 0; color:#555;"><i>Cú pháp: "Tên Chuyên Mục : Số ID".<br>Ngăn cách nhau bởi dấu phẩy.</i></p>
+          <textarea id="wp_cat" rows="4" placeholder="Ví dụ: Thể Thao:7, Dân Gian:8, Casino:2"></textarea>
+        </div>
+        
+        <button onclick="saveAndClose()">💾 LƯU CẤU HÌNH</button>
+        
+        <div class="footer">
+          <b>Lưu ý:</b> Bất kỳ thông số nào bạn Điền và Lưu ở đây sẽ được làm chuẩn Hệ thống Đích để phóng bài viết lên. Rất tiện lợi để bạn chuyển đổi liên tục giữa các Website vệ tinh khác nhau mà không phải sửa lại code!
+        </div>
+
+        <script>
+          google.script.run.withSuccessHandler(function(config){
+            document.getElementById("wp_url").value = config.url || "";
+            document.getElementById("wp_user").value = config.user || "";
+            document.getElementById("wp_pass").value = config.pass || "";
+            document.getElementById("wp_cat").value = config.cat || "";
+          }).getConfigValues();
+
+          function saveAndClose() {
+            var btn = document.querySelector("button");
+            btn.innerText = "⏳ Đang kết nối...";
+            btn.style.backgroundColor = "#ffc107";
+            btn.style.color = "#000";
+
+            var data = {
+              url: document.getElementById("wp_url").value.trim(),
+              user: document.getElementById("wp_user").value.trim(),
+              pass: document.getElementById("wp_pass").value.trim(),
+              cat: document.getElementById("wp_cat").value.trim()
+            };
+            
+            google.script.run.withSuccessHandler(function(){
+              google.script.host.close();
+            }).saveConfigValues(data);
+          }
+        </script>
+      </body>
+    </html>
+  `).setTitle('HỆ THỐNG ĐIỀU KHIỂN API');
+  
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function getConfigValues() {
+  var localProps = PropertiesService.getDocumentProperties();
+  return {
+    url: localProps.getProperty('WP_URL'),
+    user: localProps.getProperty('WP_USER'),
+    pass: localProps.getProperty('WP_PASS'),
+    cat: localProps.getProperty('WP_CAT_MAP')
+  };
+}
+
+function saveConfigValues(data) {
+  var localProps = PropertiesService.getDocumentProperties();
+  let cleanUrl = data.url.trim();
+  if (cleanUrl.endsWith("/")) {
+    cleanUrl = cleanUrl.slice(0, -1);
+  }
+  
+  localProps.setProperty('WP_URL', cleanUrl);
+  localProps.setProperty('WP_USER', data.user);
+  localProps.setProperty('WP_PASS', data.pass);
+  localProps.setProperty('WP_CAT_MAP', data.cat);
+  return true;
+}
