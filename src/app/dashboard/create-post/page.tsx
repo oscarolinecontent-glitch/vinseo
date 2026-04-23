@@ -36,13 +36,13 @@ export default function CreatePostPage() {
     wp_user: '',
     wp_app_pass: '',
     wp_password: '',
-    wp_login_path: ''
+    wp_login_path: '',
+    image_format: 'webp'
   });
 
   const [posts, setPosts] = useState<PostItem[]>([
     { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }
   ]);
-  const [imageFormat, setImageFormat] = useState('webp');
 
   useEffect(() => {
     const fetchProjects = async () => {
@@ -66,10 +66,10 @@ export default function CreatePostPage() {
     if (pId) {
       const p = projects.find(x => x.id.toString() === pId);
       if (p) {
-        setSiteConfig({ wp_url: p.url, wp_user: p.wp_user, wp_app_pass: p.wp_app_pass, wp_password: p.wp_password || '', wp_login_path: p.wp_login_path || '' });
+        setSiteConfig({ wp_url: p.url, wp_user: p.wp_user, wp_app_pass: p.wp_app_pass, wp_password: p.wp_password || '', wp_login_path: p.wp_login_path || '', image_format: p.image_format || 'webp' });
       }
     } else {
-      setSiteConfig({ wp_url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '' });
+      setSiteConfig({ wp_url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
     }
   };
 
@@ -159,6 +159,16 @@ export default function CreatePostPage() {
     }
   };
 
+  const applyAllFormat = (val: string) => {
+    if (!val) return;
+    setPosts(prev => prev.map(p => ({ ...p, postType: val as 'post' | 'page' | 'category' })));
+  };
+
+  const applyAllStatus = (val: string) => {
+    if (!val) return;
+    setPosts(prev => prev.map(p => ({ ...p, status: val as 'draft' | 'publish' })));
+  };
+
   const handleBulkSubmit = async () => {
     if (!siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
       alert("Vui lòng cấu hình kết nối WP ở Bước 1!");
@@ -188,7 +198,6 @@ export default function CreatePostPage() {
               categoryId: parseInt(p.categoryId),
               meta_desc: p.meta_desc,
               keyword: p.keyword,
-              imageFormat: imageFormat,
             }
           })
         });
@@ -269,26 +278,21 @@ export default function CreatePostPage() {
               </label>
               <input type="password" name="wp_app_pass" value={siteConfig.wp_app_pass} onChange={handleConfigChange} placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                 <Settings size={12} /> Mật khẩu đăng nhập WP <span className="text-violet-500">(để tự động điền RankMath)</span>
-              </label>
-              <input type="password" name="wp_password" value={siteConfig.wp_password} onChange={handleConfigChange} placeholder="Mật khẩu thật dùng để đăng nhập vào web" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
-              <p className="text-[10px] text-gray-500 italic">Đây là mật khẩu dùng để đăng nhập vào trang wp-admin, không phải App Password.</p>
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                 🖼️ Định dạng ảnh bài viết
-              </label>
-              <select 
-                value={imageFormat} 
-                onChange={(e) => setImageFormat(e.target.value)} 
-                className="w-full bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30 rounded-md px-4 py-2 text-sm text-violet-700 dark:text-violet-300 font-bold focus:outline-none focus:border-violet-500 transition"
-              >
-                <option value="webp">⚡ WebP (Siêu nhẹ - Khuyên dùng)</option>
-                <option value="jpeg">🖼️ JPG (Chất lượng cao)</option>
-                <option value="png">🎨 PNG (Trong suốt / Lossless)</option>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Định dạng ảnh tải lên</label>
+              <select name="image_format" value={siteConfig.image_format || 'webp'} onChange={handleConfigChange as any} className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition">
+                <option value="webp">WebP (Khuyên dùng - Nén siêu nhẹ)</option>
+                <option value="jpeg">JPEG (Phổ thông)</option>
+                <option value="png">PNG (Giữ nguyên nền trong suốt)</option>
               </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Mật khẩu đăng nhập WP</label>
+              <input type="password" name="wp_password" value={siteConfig.wp_password || ''} onChange={handleConfigChange} placeholder="Mật khẩu tài khoản (để auto fill SEO)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Đường dẫn đăng nhập</label>
+              <input type="text" name="wp_login_path" value={siteConfig.wp_login_path || ''} onChange={handleConfigChange} placeholder="/wp-login.php" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
           </div>
         </div>
@@ -327,7 +331,22 @@ export default function CreatePostPage() {
               <div className="col-span-4">Link Google Docs</div>
               <div className="col-span-2">Từ khóa chính</div>
               <div className="col-span-2">Chuyên mục</div>
-              <div className="col-span-2">Format / Trạng thái</div>
+              <div className="col-span-2 flex flex-col justify-end pb-1 pr-2">
+                <span className="mb-1">Format / Trạng thái</span>
+                <div className="flex gap-1">
+                  <select onChange={(e) => { applyAllFormat(e.target.value); e.target.value = ''; }} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded text-[9px] px-1 py-0.5 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 cursor-pointer">
+                    <option className="bg-white dark:bg-slate-900" value="">Set All</option>
+                    <option className="bg-white dark:bg-slate-900" value="post">Post</option>
+                    <option className="bg-white dark:bg-slate-900" value="page">Page</option>
+                    <option className="bg-white dark:bg-slate-900" value="category">Category</option>
+                  </select>
+                  <select onChange={(e) => { applyAllStatus(e.target.value); e.target.value = ''; }} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded text-[9px] px-1 py-0.5 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 cursor-pointer">
+                    <option className="bg-white dark:bg-slate-900" value="">Set All</option>
+                    <option className="bg-white dark:bg-slate-900" value="draft">Nháp</option>
+                    <option className="bg-white dark:bg-slate-900" value="publish">Public</option>
+                  </select>
+                </div>
+              </div>
               <div className="col-span-1 text-center">Kết quả</div>
               <div className="col-span-1 text-center">Xóa</div>
             </div>

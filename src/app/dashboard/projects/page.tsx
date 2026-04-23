@@ -8,7 +8,7 @@ import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore'
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([]);
-  const [newProject, setNewProject] = useState({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '' });
+  const [newProject, setNewProject] = useState({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
@@ -35,7 +35,7 @@ export default function ProjectsPage() {
     try {
       await addDoc(collection(db, 'users', user.uid, 'projects'), newProject);
       await fetchProjects();
-      setNewProject({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '' });
+      setNewProject({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
     } catch (error) {
       console.error("Error adding document: ", error);
     }
@@ -105,7 +105,7 @@ export default function ProjectsPage() {
         <div>
           <form onSubmit={handleAdd} className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-4">
             <h3 className="font-semibold text-slate-900 dark:text-white mb-2">Thêm Dự Án Mới</h3>
-            <div> 
+            <div>
               <label className="text-xs text-gray-600 dark:text-gray-400">Tên Dự Án</label>
               <input required value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="VD: Blog SEO..." />
             </div>
@@ -129,9 +129,17 @@ export default function ProjectsPage() {
             </div>
             <div>
               <label className="text-xs text-gray-600 dark:text-gray-400">
-                Đường dẫn đăng nhập WP <span className="text-amber-500">(WPS Hide Login - để trống nếu dùng đường dẫn mặc định)</span>
+                Đường dẫn đăng nhập WP <span className="text-violet-400 font-mono">(mặc định: /wp-login.php)</span>
               </label>
-              <input type="text" value={newProject.wp_login_path} onChange={e => setNewProject({...newProject, wp_login_path: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="VD: secret-login (chỉ nhập phần sau dấu /)" />
+              <input type="text" value={newProject.wp_login_path} onChange={e => setNewProject({...newProject, wp_login_path: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" placeholder="/wp-login.php hoặc /dang-nhap" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Định dạng ảnh tự động chuyển đổi</label>
+              <select value={newProject.image_format || 'webp'} onChange={e => setNewProject({...newProject, image_format: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none">
+                <option value="webp">WebP (Khuyên dùng - Nén siêu nhẹ)</option>
+                <option value="jpeg">JPEG (Phổ thông)</option>
+                <option value="png">PNG (Giữ nền trong suốt)</option>
+              </select>
             </div>
             <button type="submit" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
               <Plus size={16} /> Thêm Dự Án

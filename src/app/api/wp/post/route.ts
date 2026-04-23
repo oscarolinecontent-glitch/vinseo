@@ -7,18 +7,15 @@ import { processAndUploadImages } from '@/lib/imageProcessor';
  * Đây là cách duy nhất bypass bảo vệ REST API meta của WordPress khi không có quyền Admin.
  */
 async function updateRankMathViaAdminSession(
-  postId: number,
+  objectId: number,
+  objectType: 'post' | 'page' | 'category' | string,
   title: string,
   desc: string,
   keyword: string,
-  postType: string,
   siteConfig: any
 ) {
   const base = siteConfig.wp_url.replace(/\/$/, '');
-  const loginPath = siteConfig.wp_login_path
-    ? siteConfig.wp_login_path.replace(/^\//, '') // bỏ dấu / đầu nếu có
-    : 'wp-login.php';
-  const loginPass = siteConfig.wp_password;
+  const loginPass = siteConfig.wp_password; // Mật khẩu đăng nhập thực sự (khác app password)
 
   if (!loginPass) {
     console.warn('RankMath Update: Không có wp_password, bỏ qua.');
@@ -34,12 +31,17 @@ async function updateRankMathViaAdminSession(
       redirect_to: `/wp-admin/`,
       testcookie: '1',
     });
-    const loginRes = await fetch(`${base}/${loginPath}`, {
+  const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+  // Xử lý cả 2 trường hợp: full URL hoặc path tương đối
+  const loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
+  const loginRes = await fetch(loginUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': loginUrl,
+        'Origin': base
       },
       body: loginForm.toString(),
       redirect: 'manual',
@@ -48,17 +50,14 @@ async function updateRankMathViaAdminSession(
     // Gom cookies từ response
     const rawCookies = loginRes.headers.getSetCookie?.() ?? [];
     const cookieStr = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
-    
     if (!cookieStr || !cookieStr.includes('wordpress_logged_in')) {
-      const errorBody = await loginRes.text();
-      console.error(`RankMath Update: Đăng nhập thất bại (Status: ${loginRes.status}).`);
-      if (loginRes.status === 404) console.error("-> Lỗi 404: Có thể web đã đổi đường dẫn đăng nhập (WPS Hide Login).");
-      if (errorBody.includes('reCAPTCHA') || errorBody.includes('captcha')) console.error("-> Lỗi: Web có CAPTCHA chặn đăng nhập tự động.");
+      console.error('RankMath Update: Đăng nhập WP thất bại, không nhận được cookie.');
       return;
     }
 
-    // BƯỚC 2: Lấy nonce từ trang editor của bài viết
-    const editPageRes = await fetch(`${base}/wp-admin/post.php?post=${postId}&action=edit`, {
+    // BƯỚC 2: Lấy nonce từ dashboard (wp-admin/)
+    // Vì wpApiSettings.nonce thường có sẵn trên mọi trang admin, ta lấy từ trang chủ admin là chuẩn nhất
+    const editPageRes = await fetch(`${base}/wp-admin/`, {
       headers: {
         'Cookie': cookieStr,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -66,22 +65,19 @@ async function updateRankMathViaAdminSession(
     });
     const editPageHtml = await editPageRes.text();
 
-    // Tìm nonce trong HTML (truy quét sâu trong script tags)
+    // Tìm nonce trong HTML (wp_rest nonce)
     const nonceMatch = editPageHtml.match(/"nonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/rankMath.*?"nonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/"restNonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/wpApiSettings.*?"nonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/rank_math_common_nonce":"([a-f0-9]+)"/i);
+      || editPageHtml.match(/wpApiSettings.*?"nonce":"([a-f0-9]+)"/i);
     
     if (!nonceMatch) {
-      console.error('RankMath Update: Không tìm thấy nonce. Thử tìm trong script tags...');
-      // Fallback: Tìm trong toàn bộ văn bản bất cứ thứ gì trông giống nonce của RankMath
-      const anyNonce = editPageHtml.match(/[a-f0-9]{10}/i); // Nonce WP thường dài 10 ký tự hex
-      if (!anyNonce) return;
+      console.error('RankMath Update: Không tìm thấy nonce trong trang editor.');
+      return;
     }
-    const nonce = nonceMatch ? nonceMatch[1] : (editPageHtml.match(/[a-f0-9]{10}/i)?.[0] || "");
+    const nonce = nonceMatch[1];
 
-    // BƯỚC 3: Gọi trực tiếp endpoint nội bộ của Rank Math với payload "cực đoan"
+    // BƯỚC 3: Gọi trực tiếp endpoint nội bộ của Rank Math
     const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
       method: 'POST',
       headers: {
@@ -91,16 +87,12 @@ async function updateRankMathViaAdminSession(
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
       body: JSON.stringify({
-        objectID: postId,
-        objectType: postType === 'page' ? 'page' : 'post',
+        objectID: objectId,
+        objectType: objectType === 'category' ? 'term' : 'post',
         meta: {
           rank_math_title: title,
           rank_math_description: desc,
           rank_math_focus_keyword: keyword,
-          // Gửi thêm biến thể có dấu gạch dưới nếu cần
-          _rank_math_title: title,
-          _rank_math_description: desc,
-          _rank_math_focus_keyword: keyword,
         },
       }),
     });
@@ -139,7 +131,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, message: parseResult.message }, { status: 400 });
       }
       if (!finalTitle) finalTitle = parseResult.title || "";
-      if (parseResult.meta_desc) finalMetaDesc = parseResult.meta_desc;
+      if (!finalMetaDesc && parseResult.meta_desc) finalMetaDesc = parseResult.meta_desc;
       driveLink = parseResult.drive_link || "";
       finalContent = parseResult.content || "";
       thumbUrl = parseResult.thumb_url || "";
@@ -159,25 +151,38 @@ export async function POST(req: Request) {
         description: finalContent,
         slug: postData.slug || (finalTitle ? finalTitle.toLowerCase().replace(/ /g, '-') : 'auto-cat'),
       };
+      
+      const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/${endpointStr}`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(wpPayload)
+      });
+      const responseText = await response.text();
+      
+      if (response.ok || response.status === 201) {
+          const data = JSON.parse(responseText);
+          if (data.id) {
+            updateRankMathViaAdminSession(data.id, postType, finalTitle, finalMetaDesc, postData.keyword || '', siteConfig)
+              .catch(e => console.error('RankMath update error:', e));
+          }
+          return NextResponse.json({ success: true, url: data.link, wp_id: data.id });
+      } else {
+          return NextResponse.json({ success: false, message: `Lỗi tạo category: ${response.status} - ${responseText}` }, { status: response.status });
+      }
+
     } else {
+      // XỬ LÝ POST / PAGE
       // Tạo slug từ keyword nếu có, nếu không lấy từ title
       const rawSlugText = postData.keyword || finalTitle;
       const finalSlug = postData.slug || (rawSlugText ? rawSlugText.toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '-').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\-]/g, "") : 'auto-post');
 
-      // --- TÍCH HỢP TOOL 7 (XỬ LÝ ẢNH) ---
-      // finalSlug lúc này là keyword slug hoàn hảo (vd: the-thao-kong88)
-      const imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, finalSlug, rawSlugText, siteConfig, postData.imageFormat);
-      
-      finalContent = imageProcessResult.processedHtml;
-      const featuredMediaId = imageProcessResult.thumbnailId;
-
       endpointStr = postType === 'page' ? 'pages' : 'posts';
       wpPayload = {
         title: finalTitle || 'Bài viết Auto generated',
-        content: finalContent,
+        content: finalContent, // Gửi tạm content chưa xử lý ảnh để xí chỗ slug trước
         slug: finalSlug,
         status: postData.status || "draft",
-        featured_media: featuredMediaId,
         meta: {
           rank_math_title: finalTitle,
           rank_math_description: finalMetaDesc,
@@ -185,48 +190,67 @@ export async function POST(req: Request) {
         }
       };
       
-      // Chỉ truyền category cho Post (Page không có Category)
-      if (postType === 'post' && postData.categoryId) {
-        wpPayload.categories = [postData.categoryId];
+      if (postType === 'post') {
+        wpPayload.excerpt = finalMetaDesc;
+        if (postData.categoryId) {
+          wpPayload.categories = [postData.categoryId];
+        }
       }
-    }
-    
-    const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/${endpointStr}`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(wpPayload)
-    });
 
-    const responseText = await response.text();
-
-    if (response.ok || response.status === 201) {
+      // BƯỚC 1: TẠO BÀI VIẾT ĐỂ CHIẾM SLUG
+      const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/${endpointStr}`;
+      let response;
       try {
-        const data = JSON.parse(responseText);
-        
-        // Ép đè RankMath bằng kỹ thuật giả lập Admin Session (bypass REST API meta block)
-        if (postType !== 'category' && data.id) {
-          updateRankMathViaAdminSession(data.id, finalTitle, finalMetaDesc, postData.keyword || '', postType, siteConfig)
-            .catch(e => console.error('RankMath update background error:', e));
-        }
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(wpPayload)
+        });
+      } catch (fetchError: any) {
+        throw new Error(`Không thể kết nối tới Website WordPress (${siteConfig.wp_url}). Vui lòng kiểm tra lại đường truyền mạng hoặc kiểm tra xem Website có chặn truy cập không. Chi tiết: ${fetchError.message}`);
+      }
 
-        return NextResponse.json({ success: true, url: data.link, wp_id: data.id });
-      } catch (parseError) {
-        if (responseText.includes('aes.js')) {
-          return NextResponse.json({ success: false, message: "Host bị chặn bởi Javascript Challenge (InfinityFree/ByetHost)." }, { status: 500 });
+      const responseText = await response.text();
+
+      if (!(response.ok || response.status === 201)) {
+        let errorMessage = `HTTP Error ${response.status}`;
+        try {
+          const err = JSON.parse(responseText);
+          errorMessage = err.message || errorMessage;
+        } catch (e) {
+          errorMessage = `Lỗi từ Server WP (Mã ${response.status}). Máy chủ trả về HTML thay vì JSON.`;
         }
+        return NextResponse.json({ success: false, message: errorMessage }, { status: response.status });
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
         return NextResponse.json({ success: false, message: "WP trả về dữ liệu không hợp lệ." }, { status: 500 });
       }
-    } else {
-      let errorMessage = `HTTP Error ${response.status}`;
-      try {
-        const err = JSON.parse(responseText);
-        errorMessage = err.message || errorMessage;
-      } catch (e) {
-        // Fallback for HTML error pages
-        errorMessage = `Lỗi từ Server WP (Mã ${response.status}). Máy chủ trả về HTML thay vì JSON. Có thể do sai URL cấu hình, sai link wp-json, hoặc bị chặn bởi Firewall (Cloudflare/Wordfence).`;
-      }
-      return NextResponse.json({ success: false, message: errorMessage }, { status: response.status });
+
+      const postId = data.id;
+
+      // BƯỚC 2: UPLOAD ẢNH & THUMBNAIL 
+      // Do bài viết đã chiếm thành công slug, tên file ảnh trùng slug sẽ không ảnh hưởng bài viết nữa
+      const imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, finalSlug, rawSlugText, siteConfig);
+      
+      // BƯỚC 3: CẬP NHẬT LẠI BÀI VIẾT VỚI NỘI DUNG ĐÃ CÓ ẢNH & GẮN FEATURED MEDIA
+      await fetch(`${endpoint}/${postId}`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({
+          content: imageProcessResult.processedHtml,
+          featured_media: imageProcessResult.thumbnailId || 0
+        })
+      });
+
+      // Ép đè RankMath meta
+      updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', siteConfig)
+        .catch(e => console.error('RankMath update background error:', e));
+
+      return NextResponse.json({ success: true, url: data.link, wp_id: postId });
     }
 
   } catch (error: any) {
