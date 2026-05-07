@@ -1,6 +1,6 @@
 //Update Code lên Github
 git add .
-git commit -m "đổi full source đăng lần 5"
+git commit -m "update đăng bài dạng chú thích"
 git push
 
 // Cập nhật trên local trước để test

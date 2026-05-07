@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { parseGoogleDoc } from '@/lib/googleApi';
-import { processAndUploadImages } from '@/lib/imageProcessor';
+import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 
 /**
  * Giả lập browser đăng nhập WP → lấy session cookie → lấy nonce → gọi Rank Math internal API
@@ -12,6 +12,7 @@ async function updateRankMathViaAdminSession(
   title: string,
   desc: string,
   keyword: string,
+  categoryId: string | number,
   siteConfig: any
 ) {
   const base = siteConfig.wp_url.replace(/\/$/, '');
@@ -31,18 +32,37 @@ async function updateRankMathViaAdminSession(
       redirect_to: `/wp-admin/`,
       testcookie: '1',
     });
-  const loginPath = siteConfig.wp_login_path || '/wp-login.php';
-  // Xử lý cả 2 trường hợp: full URL hoặc path tương đối
-  const loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
-  const loginRes = await fetch(loginUrl, {
+    const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+    // Xử lý cả 2 trường hợp: full URL hoặc path tương đối
+    let loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
+
+    let basicAuthHeader = '';
+    try {
+      const urlObj = new URL(loginUrl);
+      if (urlObj.username && urlObj.password) {
+        basicAuthHeader = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
+        // Dọn sạch user/pass khỏi URL để tránh lỗi fetch
+        urlObj.username = '';
+        urlObj.password = '';
+        loginUrl = urlObj.toString();
+      }
+    } catch (e) { }
+
+    const headers: any = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Referer': loginUrl,
+      'Origin': base
+    };
+
+    if (basicAuthHeader) {
+      headers['Authorization'] = basicAuthHeader;
+    }
+
+    const loginRes = await fetch(loginUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': loginUrl,
-        'Origin': base
-      },
+      headers: headers,
       body: loginForm.toString(),
       redirect: 'manual',
     });
@@ -56,12 +76,16 @@ async function updateRankMathViaAdminSession(
     }
 
     // BƯỚC 2: Lấy nonce từ dashboard (wp-admin/)
-    // Vì wpApiSettings.nonce thường có sẵn trên mọi trang admin, ta lấy từ trang chủ admin là chuẩn nhất
+    const editHeaders: any = {
+      'Cookie': cookieStr,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    };
+    if (basicAuthHeader) {
+      editHeaders['Authorization'] = basicAuthHeader;
+    }
+
     const editPageRes = await fetch(`${base}/wp-admin/`, {
-      headers: {
-        'Cookie': cookieStr,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
+      headers: editHeaders,
     });
     const editPageHtml = await editPageRes.text();
 
@@ -70,7 +94,7 @@ async function updateRankMathViaAdminSession(
       || editPageHtml.match(/rankMath.*?"nonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/"restNonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/wpApiSettings.*?"nonce":"([a-f0-9]+)"/i);
-    
+
     if (!nonceMatch) {
       console.error('RankMath Update: Không tìm thấy nonce trong trang editor.');
       return;
@@ -78,14 +102,19 @@ async function updateRankMathViaAdminSession(
     const nonce = nonceMatch[1];
 
     // BƯỚC 3: Gọi trực tiếp endpoint nội bộ của Rank Math
+    const rmHeaders: any = {
+      'Content-Type': 'application/json',
+      'Cookie': cookieStr,
+      'X-WP-Nonce': nonce,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    };
+    if (basicAuthHeader) {
+      rmHeaders['Authorization'] = basicAuthHeader;
+    }
+
     const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookieStr,
-        'X-WP-Nonce': nonce,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
+      headers: rmHeaders,
       body: JSON.stringify({
         objectID: objectId,
         objectType: objectType === 'category' ? 'term' : 'post',
@@ -93,6 +122,7 @@ async function updateRankMathViaAdminSession(
           rank_math_title: title,
           rank_math_description: desc,
           rank_math_focus_keyword: keyword,
+          rank_math_primary_category: categoryId ? parseInt(categoryId.toString(), 10) : 0
         },
       }),
     });
@@ -106,7 +136,7 @@ async function updateRankMathViaAdminSession(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { siteConfig, postData } = body; 
+    const { siteConfig, postData } = body;
 
     // Xử lý tạo Token Base64 từ credential
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
@@ -151,7 +181,7 @@ export async function POST(req: Request) {
         description: finalContent,
         slug: postData.slug || (finalTitle ? finalTitle.toLowerCase().replace(/ /g, '-') : 'auto-cat'),
       };
-      
+
       const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/${endpointStr}`;
       const response = await fetch(endpoint, {
         method: "POST",
@@ -159,16 +189,16 @@ export async function POST(req: Request) {
         body: JSON.stringify(wpPayload)
       });
       const responseText = await response.text();
-      
+
       if (response.ok || response.status === 201) {
-          const data = JSON.parse(responseText);
-          if (data.id) {
-            updateRankMathViaAdminSession(data.id, postType, finalTitle, finalMetaDesc, postData.keyword || '', siteConfig)
-              .catch(e => console.error('RankMath update error:', e));
-          }
-          return NextResponse.json({ success: true, url: data.link, wp_id: data.id });
+        const data = JSON.parse(responseText);
+        if (data.id) {
+          updateRankMathViaAdminSession(data.id, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
+            .catch(e => console.error('RankMath update error:', e));
+        }
+        return NextResponse.json({ success: true, url: data.link, wp_id: data.id });
       } else {
-          return NextResponse.json({ success: false, message: `Lỗi tạo category: ${response.status} - ${responseText}` }, { status: response.status });
+        return NextResponse.json({ success: false, message: `Lỗi tạo category: ${response.status} - ${responseText}` }, { status: response.status });
       }
 
     } else {
@@ -189,7 +219,7 @@ export async function POST(req: Request) {
           rank_math_focus_keyword: postData.keyword || ""
         }
       };
-      
+
       if (postType === 'post') {
         wpPayload.excerpt = finalMetaDesc;
         if (postData.categoryId) {
@@ -232,22 +262,30 @@ export async function POST(req: Request) {
 
       const postId = data.id;
 
-      // BƯỚC 2: UPLOAD ẢNH & THUMBNAIL 
+      // BƯỚC 2: XỬ LÝ ẢNH & THUMBNAIL 
       // Do bài viết đã chiếm thành công slug, tên file ảnh trùng slug sẽ không ảnh hưởng bài viết nữa
-      const imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, finalSlug, rawSlugText, siteConfig);
-      
+      let imageProcessResult;
+      if (postData.imageType === 'caption') {
+        imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
+      } else {
+        imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, finalSlug, rawSlugText, siteConfig);
+      }
+
       // BƯỚC 3: CẬP NHẬT LẠI BÀI VIẾT VỚI NỘI DUNG ĐÃ CÓ ẢNH & GẮN FEATURED MEDIA
       await fetch(`${endpoint}/${postId}`, {
         method: "POST",
         headers: headers,
         body: JSON.stringify({
           content: imageProcessResult.processedHtml,
-          featured_media: imageProcessResult.thumbnailId || 0
+          featured_media: imageProcessResult.thumbnailId || 0,
+          meta: {
+            rank_math_primary_category: postData.categoryId ? parseInt(postData.categoryId, 10) : 0
+          }
         })
       });
 
-      // Ép đè RankMath meta
-      updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', siteConfig)
+      // Ép đè RankMath meta (bao gồm Primary Category)
+      updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', postData.categoryId || '', siteConfig)
         .catch(e => console.error('RankMath update background error:', e));
 
       return NextResponse.json({ success: true, url: data.link, wp_id: postId });

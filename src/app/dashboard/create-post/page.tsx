@@ -40,6 +40,8 @@ export default function CreatePostPage() {
     image_format: 'webp'
   });
 
+  const [imageType, setImageType] = useState<'key' | 'caption'>('key');
+
   const [posts, setPosts] = useState<PostItem[]>([
     { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }
   ]);
@@ -192,12 +194,13 @@ export default function CreatePostPage() {
             siteConfig,
             postData: {
               gdoc_url: p.gdoc_url,
-              title: p.title,
+              title: p.title, 
               postType: p.postType,
               status: p.status,
               categoryId: parseInt(p.categoryId),
               meta_desc: p.meta_desc,
               keyword: p.keyword,
+              imageType: imageType
             }
           })
         });
@@ -299,11 +302,27 @@ export default function CreatePostPage() {
 
         {/* Section 2: Google Docs & Content List */}
         <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <LinkIcon size={18} className="text-violet-400" />
-              2. Danh sách Nội Dung (Google Docs)
-            </h2>
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <LinkIcon size={18} className="text-violet-400" />
+                2. Danh sách Nội Dung
+              </h2>
+              <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-lg flex gap-1 border border-gray-200 dark:border-gray-700">
+                <button 
+                  onClick={() => setImageType('key')} 
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${imageType === 'key' ? 'bg-white dark:bg-slate-700 text-violet-600 dark:text-violet-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  Ảnh dạng key
+                </button>
+                <button 
+                  onClick={() => setImageType('caption')} 
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${imageType === 'caption' ? 'bg-white dark:bg-slate-700 text-violet-600 dark:text-violet-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  Ảnh dạng chú thích
+                </button>
+              </div>
+            </div>
             <button onClick={addPost} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
               <Plus size={14} /> Thêm 1 dòng
             </button>
@@ -311,7 +330,7 @@ export default function CreatePostPage() {
 
           <div className="mb-6 p-4 bg-violet-500/5 border border-violet-500/20 rounded-lg">
             <label className="text-xs font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-2 block">Nhập hàng loạt từ Excel / Google Sheets</label>
-            <p className="text-xs text-gray-500 mb-2">Copy 2 cột từ Excel và dán vào ô dưới đây. (Cột 1: Link Docs, Cột 2: Từ khóa chính).</p>
+            <p className="text-xs text-gray-500 mb-2">Copy các cột từ Excel và dán vào ô dưới đây. (Cột 1: Link Docs, Cột 2: Từ khóa chính, Cột 3: Meta Desc).</p>
             <div className="flex gap-2">
               <textarea 
                 value={excelText} 
@@ -327,7 +346,7 @@ export default function CreatePostPage() {
 
           <div className="space-y-2">
             {/* Table Header */}
-            <div className="hidden md:grid grid-cols-12 gap-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 pb-2 border-b border-gray-200 dark:border-gray-800">
+            <div className={`hidden md:grid gap-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 pb-2 border-b border-gray-200 dark:border-gray-800 grid-cols-12`}>
               <div className="col-span-4">Link Google Docs</div>
               <div className="col-span-2">Từ khóa chính</div>
               <div className="col-span-2">Chuyên mục</div>
@@ -352,7 +371,7 @@ export default function CreatePostPage() {
             </div>
 
             {posts.map((post, index) => (
-              <div key={post.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-md p-2">
+              <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-md p-2`}>
                 <div className="col-span-4">
                   <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="Link Google Docs..." className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500" />
                 </div>
