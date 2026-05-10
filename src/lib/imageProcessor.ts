@@ -7,7 +7,6 @@ interface SiteConfig {
   wp_app_pass: string;
   wp_password?: string;
   wp_login_path?: string;
-  wp_login_path?: string;
   image_format?: string; // 'webp', 'jpeg', 'png'
   authHeaders?: any; // Dùng để bypass WAF nếu có Session Cookie
 }
