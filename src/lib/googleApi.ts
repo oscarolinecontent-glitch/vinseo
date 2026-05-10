@@ -3,10 +3,12 @@ import * as cheerio from 'cheerio';
 // Hàm bóc tách nội dung từ link Google Docs (yêu cầu Doc được set quyền "Anyone with the link can view")
 export const parseGoogleDoc = async (docUrl: string) => {
   try {
-    // 1. Trích xuất Document ID từ URL
-    const match = docUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    // Hỗ trợ cả 2 dạng link:
+    // 1. https://docs.google.com/document/d/ID/edit
+    // 2. https://docs.google.com/open?id=ID  (link từ Google Apps Script hoặc tool tạo tự động)
+    const match = docUrl.match(/\/d\/([a-zA-Z0-9-_]+)/) || docUrl.match(/[?&]id=([a-zA-Z0-9-_]+)/);
     if (!match || !match[1]) {
-      throw new Error("Link Google Docs không hợp lệ.");
+      throw new Error("Link Google Docs không hợp lệ. Chỉ hỗ trợ link dạng /document/d/ID hoặc open?id=ID.");
     }
     const docId = match[1];
 
