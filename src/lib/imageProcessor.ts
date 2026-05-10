@@ -7,7 +7,16 @@ interface SiteConfig {
   wp_app_pass: string;
   wp_password?: string;
   wp_login_path?: string;
+  wp_login_path?: string;
   image_format?: string; // 'webp', 'jpeg', 'png'
+  authHeaders?: any; // Dùng để bypass WAF nếu có Session Cookie
+}
+
+function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: any = {}) {
+  const headers = siteConfig.authHeaders ? { ...siteConfig.authHeaders } : {
+    'Authorization': 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64')
+  };
+  return { ...headers, ...additionalHeaders };
 }
 
 export async function processAndUploadImages(
@@ -84,15 +93,12 @@ export async function processAndUploadImages(
       // Tên file chuẩn SEO theo keyword, dọn sạch ký tự tiếng Việt (đ) và non-ASCII
       const safeSlug = keywordSlug.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, "");
       const filename = `${safeSlug}-${i + 1}.${ext}`;
-      const authHeader = 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-      
       const uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
         method: 'POST',
-        headers: {
-          'Authorization': authHeader,
+        headers: getApiHeaders(siteConfig, {
           'Content-Type': contentType,
           'Content-Disposition': `attachment; filename="${filename}"`
-        },
+        }),
         body: finalBuffer as any
       });
 
@@ -120,10 +126,9 @@ export async function processAndUploadImages(
       // Update WP media
       await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media/${mediaId}`, {
         method: 'POST',
-        headers: {
-          'Authorization': authHeader,
+        headers: getApiHeaders(siteConfig, {
           'Content-Type': 'application/json'
-        },
+        }),
         body: JSON.stringify({
            alt_text: altText,
            description: altText,
@@ -136,8 +141,8 @@ export async function processAndUploadImages(
       
       let classicBlock = '';
       if (visibleCaption) {
-          // Nếu có caption thực sự từ Docs, bọc shortcode [caption]
-          classicBlock = `\n[caption id="attachment_${mediaId}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaId}" src="${mediaUrl}" alt="${altText}" width="${captionWidth}" height="${captionHeight}" /> ${visibleCaption}[/caption]\n`;
+          // Nếu có caption thực sự từ Docs, bọc shortcode [caption] (Bỏ \n để tránh vỡ DOM)
+          classicBlock = `[caption id="attachment_${mediaId}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaId}" src="${mediaUrl}" alt="${altText}" width="${captionWidth}" height="${captionHeight}" /> ${visibleCaption}[/caption]`;
       } else {
           // Nếu không có caption, chỉ xuất thẻ img (có gắn sẵn class aligncenter để tự động căn giữa)
           classicBlock = `<img class="aligncenter size-full wp-image-${mediaId}" src="${mediaUrl}" alt="${altText}" width="${captionWidth}" height="${captionHeight}" />`;
@@ -145,13 +150,9 @@ export async function processAndUploadImages(
       
       const parentP = img.closest('p');
       if (parentP.length > 0 && parentP.text().trim() === '') {
-        // Thay thế toàn bộ thẻ <p> bằng khối ảnh
-        if (visibleCaption) {
-             parentP.replaceWith(classicBlock);
-        } else {
-             // Với thẻ img trần, cứ để nó nằm trong thẻ p cũ nhưng canh giữa (nếu p đã canh giữa)
-             parentP.html(classicBlock);
-        }
+        // Luôn giữ lại thẻ <p> cũ để WordPress không bị lỗi wpautop làm mất định dạng
+        parentP.html(classicBlock);
+        parentP.attr('style', 'text-align: center;');
       } else {
         // Nếu ảnh nằm xen kẽ text
         img.replaceWith(classicBlock);
@@ -210,15 +211,12 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
       }
 
       const safeFilename = filename.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, "");
-      const authHeader = 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-      
       const uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
         method: 'POST',
-        headers: {
-          'Authorization': authHeader,
+        headers: getApiHeaders(siteConfig, {
           'Content-Type': contentType,
           'Content-Disposition': `attachment; filename="${safeFilename}"`
-        },
+        }),
         body: finalBuffer as any
       });
 
@@ -228,7 +226,7 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
       // Update SEO
       await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media/${mediaData.id}`, {
         method: 'POST',
-        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+        headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ alt_text: seoText, description: seoText, caption: seoText })
       });
 
@@ -261,14 +259,11 @@ function convertToSlug(str: string) {
 
 async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, globalUsedMediaIds: number[]): Promise<any> {
   const cleanName = filename.replace(/\.(webp|jpg|png|jpeg)$/i, "");
-  const authHeader = 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-  
   const options = {
     method: "GET",
-    headers: { 
-      "Authorization": authHeader,
+    headers: getApiHeaders(siteConfig, {
       "User-Agent": "Mozilla/5.0"
-    }
+    })
   };
 
   const fetchWithRetry = async (url: string) => {
@@ -333,14 +328,12 @@ export async function processImagesByCaption(
   const thumbData = await getMediaDataByFilename(h1Slug, siteConfig, globalUsedMediaIds);
   let thumbnailId: number | null = null;
   
-  const authHeader = 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-  
   if (thumbData) {
       thumbnailId = thumbData.id;
       // Update SEO cho thumbnail
       await fetch(`${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/media/${thumbnailId}`, {
         method: 'POST',
-        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+        headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ alt_text: title, caption: title, description: title })
       }).catch(() => {});
   }
@@ -370,11 +363,11 @@ export async function processImagesByCaption(
           const isItalic = htmlStr.includes('<i') || htmlStr.includes('<em') || htmlStr.includes('font-style: italic') || htmlStr.includes('font-style:italic');
           const isMatchLastHeading = (lastHeadingText !== "" && text.toLowerCase() === lastHeadingText.toLowerCase());
           
-          // Điều kiện xử lý cứng: KHÔNG có dấu chấm câu ở CUỐI câu (cho phép có ở giữa như "Hình 1: ...")
-          const hasNoEndPunctuation = !/[.!?:;]$/.test(text.trim());
+          // Điều kiện xử lý cứng: KHÔNG có dấu chấm câu ở CUỐI câu (nhưng cho phép dấu ?)
+          const hasNoEndPunctuation = !/[.!:,;]$/.test(text.trim());
           
-          // Chú thích: thẻ p, nội dung < 400 ký tự, KHÔNG có dấu kết câu, và (căn giữa HOẶC in nghiêng HOẶC giống heading)
-          const isShortCaption = text.length > 2 && text.length < 400 && hasNoEndPunctuation && (isCentered || isItalic || isMatchLastHeading);
+          // Chú thích: thẻ p, nội dung < 200 ký tự, KHÔNG có dấu kết câu (trừ ?), và (căn giữa HOẶC in nghiêng HOẶC giống heading)
+          const isShortCaption = text.length > 2 && text.length < 200 && hasNoEndPunctuation && (isCentered || isItalic || isMatchLastHeading);
 
           if (isShortCaption) {
               const captionSlug = convertToSlug(text);
@@ -384,21 +377,23 @@ export async function processImagesByCaption(
                   // Cập nhật thẻ SEO của ảnh
                   await fetch(`${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/media/${mediaData.id}`, {
                     method: 'POST',
-                    headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+                    headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ alt_text: text, caption: text, description: text })
                   }).catch(() => {});
 
                   const captionWidth = mediaData.w || 1200;
                   const captionHeight = mediaData.h || 800;
                   
-                  const classicBlock = `\n[caption id="attachment_${mediaData.id}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaData.id}" src="${mediaData.url}" alt="${text}" width="${captionWidth}" height="${captionHeight}" /> ${text}[/caption]\n`;
+                  const classicBlock = `[caption id="attachment_${mediaData.id}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaData.id}" src="${mediaData.url}" alt="${text}" width="${captionWidth}" height="${captionHeight}" /> ${text}[/caption]`;
                   
-                  $el.replaceWith(classicBlock);
+                  $el.html(classicBlock);
+                  $el.attr('style', 'text-align: center;');
               } else {
                   // Nếu không tìm thấy, tạo một thẻ img mẫu
                   const generatedImageUrl = `/wp-content/uploads/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${captionSlug}.webp`;
-                  const classicBlock = `\n[caption align="aligncenter"]<img src="${generatedImageUrl}" alt="${text}" class="size-full" /> ${text}[/caption]\n`;
-                  $el.replaceWith(classicBlock);
+                  const classicBlock = `[caption align="aligncenter"]<img src="${generatedImageUrl}" alt="${text}" class="size-full" /> ${text}[/caption]`;
+                  $el.html(classicBlock);
+                  $el.attr('style', 'text-align: center;');
               }
               
               lastHeadingText = ""; // Reset

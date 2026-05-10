@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getWpAdminSession } from '@/lib/wpAuth';
 
 export async function POST(req: Request) {
   try {
@@ -10,37 +11,67 @@ export async function POST(req: Request) {
     }
 
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    const headers = {
+    const headers: any = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
 
     const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: "GET",
       headers: headers
     });
+
+    // NẾU BASIC AUTH BỊ CHẶN BỞI WAF (LỖI 401 HOẶC 403), THỬ COOKIE AUTH FALLBACK
+    let usingCookieAuth = false;
+    if (!response.ok) {
+      console.log('checkConnection: Basic Auth failed, trying Cookie fallback...');
+      const session = await getWpAdminSession(siteConfig);
+      if (session) {
+        const cookieHeaders = {
+          'Cookie': session.cookieStr,
+          'X-WP-Nonce': session.nonce,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+        const fallbackResponse = await fetch(endpoint, {
+          method: "GET",
+          headers: cookieHeaders
+        });
+        if (fallbackResponse.ok) {
+          response = fallbackResponse;
+          usingCookieAuth = true;
+          console.log('checkConnection: Cookie fallback SUCCESS');
+        }
+      }
+    }
 
     const responseText = await response.text();
 
     if (response.ok) {
       try {
         const data = JSON.parse(responseText);
-        return NextResponse.json({ success: true, message: "Kết nối thành công!", user: data.name });
+        return NextResponse.json({ 
+          success: true, 
+          message: usingCookieAuth ? "Kết nối thành công (Bypass WAF bằng Session)!" : "Kết nối thành công!", 
+          user: data.name,
+          usingCookieAuth 
+        });
       } catch (parseError) {
         if (responseText.includes('aes.js')) {
           return NextResponse.json({ 
             success: false, 
-            message: `⚠️ BỊ HOSTING CHẶN: Website của bạn đang dùng Hosting miễn phí (InfinityFree, ByetHost...) hoặc có Firewall chống DDoS quá mạnh. Host này bắt buộc trình duyệt phải chạy file 'aes.js' để vượt qua. Vì Tool của chúng ta chạy trên Server/Localhost nên bị chặn hoàn toàn.\n💡 Giải pháp: Đổi sang Hosting thật (trả phí) hoặc Deploy ứng dụng này lên Vercel để mượn IP uy tín của máy chủ.` 
+            message: `⚠️ BỊ HOSTING CHẶN: Website của bạn đang dùng Hosting miễn phí hoặc Firewall chống DDoS mạnh. Tool không vượt qua được.` 
           }, { status: 500 });
         }
 
         const preview = responseText.substring(0, 150).replace(/</g, "&lt;").replace(/>/g, "&gt;");
         return NextResponse.json({ 
           success: false, 
-          message: `Kết nối trả về mã 200 (OK) nhưng dữ liệu không phải JSON. Có thể do Cloudflare chặn hoặc URL không đúng chuẩn REST API. Dữ liệu nhận được: ${preview}...` 
+          message: `Kết nối trả về mã 200 nhưng dữ liệu không phải JSON. Cloudflare chặn? Dữ liệu: ${preview}...` 
         }, { status: 500 });
       }
     } else {
@@ -49,7 +80,7 @@ export async function POST(req: Request) {
         const err = JSON.parse(responseText);
         errorMessage = err.message || errorMessage;
       } catch (e) {
-        errorMessage = `Lỗi kết nối (Mã ${response.status}). URL có thể bị sai hoặc firewall chặn.`;
+        errorMessage = `Lỗi kết nối (Mã ${response.status}). Cả Basic Auth và Session Login đều thất bại, bị Firewall chặn hoàn toàn.`;
       }
       return NextResponse.json({ success: false, message: errorMessage }, { status: response.status });
     }

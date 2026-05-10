@@ -118,8 +118,8 @@ export default function CreatePostPage() {
     }
   };
 
-  const updatePost = (id: string, field: keyof PostItem, value: string) => {
-    setPosts(posts.map(p => p.id === id ? { ...p, [field]: value } : p));
+  const updatePost = (id: string, field: keyof PostItem, value: any) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   };
 
   const addPost = () => {
@@ -347,7 +347,7 @@ export default function CreatePostPage() {
           <div className="space-y-2">
             {/* Table Header */}
             <div className={`hidden md:grid gap-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 pb-2 border-b border-gray-200 dark:border-gray-800 grid-cols-12`}>
-              <div className="col-span-4">Link Google Docs</div>
+              <div className="col-span-3">Link Google Docs</div>
               <div className="col-span-2">Từ khóa chính</div>
               <div className="col-span-2">Chuyên mục</div>
               <div className="col-span-2 flex flex-col justify-end pb-1 pr-2">
@@ -367,12 +367,13 @@ export default function CreatePostPage() {
                 </div>
               </div>
               <div className="col-span-1 text-center">Kết quả</div>
+              <div className="col-span-1 text-center">Link</div>
               <div className="col-span-1 text-center">Xóa</div>
             </div>
 
             {posts.map((post, index) => (
               <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-md p-2`}>
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="Link Google Docs..." className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500" />
                 </div>
                 <div className="col-span-2">
@@ -405,10 +406,17 @@ export default function CreatePostPage() {
                   </select>
                 </div>
                 <div className="col-span-1 text-center">
-                   {post.resultStatus === 'success' ? <span className="text-violet-500 font-bold text-xs">☑️</span> : 
+                   {post.resultStatus === 'success' ? <CheckCircle2 size={16} className="inline text-green-500" /> : 
                     post.resultStatus === 'error' ? <span className="text-red-500 font-bold text-xs">Lỗi</span> :
                     post.resultStatus === 'loading' ? <RefreshCw size={12} className="animate-spin inline text-blue-500" /> :
                     <span className="text-gray-400 text-xs">Chờ</span>}
+                </div>
+                <div className="col-span-1 text-center">
+                   {post.resultStatus === 'success' && post.resultUrl ? (
+                      <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
+                        <LinkIcon size={16} className="inline" />
+                      </a>
+                   ) : null}
                 </div>
                 <div className="col-span-1 text-center flex justify-center">
                   <button onClick={() => removePost(post.id)} className="text-gray-400 hover:text-red-400 transition-colors p-1">
@@ -417,9 +425,9 @@ export default function CreatePostPage() {
                 </div>
 
                 {/* Status/Error Message Row */}
-                {post.resultStatus && (
-                  <div className="col-span-12 mt-1 text-[11px] text-gray-500 pl-2">
-                    {post.resultStatus === 'success' ? <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:underline">🔗 Xem bài đăng &rarr;</a> : post.resultMessage}
+                {post.resultStatus === 'error' && (
+                  <div className="col-span-12 mt-1 text-[11px] text-red-500 pl-2">
+                    {post.resultMessage}
                   </div>
                 )}
               </div>

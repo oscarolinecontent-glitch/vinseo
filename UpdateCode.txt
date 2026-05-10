@@ -1,6 +1,6 @@
 //Update Code lên Github
 git add .
-git commit -m "update đăng bài dạng chú thích"
+git commit -m "update tính năng lọc ảnh"
 git push
 
 // Cập nhật trên local trước để test

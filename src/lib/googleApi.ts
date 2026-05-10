@@ -187,7 +187,10 @@ export const parseGoogleDoc = async (docUrl: string) => {
 
         if (parentTextAfterImg !== '') {
             // CASE 1: Caption nằm CÙNG thẻ p với ảnh: <p><img><i>Caption text</i></p>
-            if (parentTextAfterImg.length < 200) {
+            const isShort = parentTextAfterImg.length < 200;
+            const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
+            
+            if (isShort && hasNoEndPunct) {
                 $img.attr('data-temp-caption', parentTextAfterImg);
                 $parentP.contents().each((_, node) => {
                     if (node !== el) {
@@ -218,8 +221,11 @@ export const parseGoogleDoc = async (docUrl: string) => {
                     emptyNodesToRemove.push($currNode);
                     $currNode = $currNode.next();
                 } else {
-                    // Tìm thấy text! Kiểm tra xem độ dài có phù hợp làm caption không
-                    if (text.length < 200) {
+                    // Tìm thấy text! Kiểm tra xem độ dài và dấu câu có phù hợp làm caption không
+                    const isShort = text.length < 200;
+                    const hasNoEndPunct = !/[.!:,;]$/.test(text);
+                    
+                    if (isShort && hasNoEndPunct) {
                         $captionNode = $currNode;
                         captionText = text;
                     }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
+import { getWpAdminSession } from '@/lib/wpAuth';
 
 /**
  * Giả lập browser đăng nhập WP → lấy session cookie → lấy nonce → gọi Rank Math internal API
@@ -24,93 +25,30 @@ async function updateRankMathViaAdminSession(
   }
 
   try {
-    // BƯỚC 1: Đăng nhập vào wp-login.php để lấy session cookie
-    const loginForm = new URLSearchParams({
-      log: siteConfig.wp_user,
-      pwd: loginPass,
-      'wp-submit': 'Log+In',
-      redirect_to: `/wp-admin/`,
-      testcookie: '1',
-    });
-    const loginPath = siteConfig.wp_login_path || '/wp-login.php';
-    // Xử lý cả 2 trường hợp: full URL hoặc path tương đối
-    let loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
-
-    let basicAuthHeader = '';
-    try {
-      const urlObj = new URL(loginUrl);
-      if (urlObj.username && urlObj.password) {
-        basicAuthHeader = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
-        // Dọn sạch user/pass khỏi URL để tránh lỗi fetch
-        urlObj.username = '';
-        urlObj.password = '';
-        loginUrl = urlObj.toString();
-      }
-    } catch (e) { }
-
-    const headers: any = {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Referer': loginUrl,
-      'Origin': base
-    };
-
-    if (basicAuthHeader) {
-      headers['Authorization'] = basicAuthHeader;
-    }
-
-    const loginRes = await fetch(loginUrl, {
-      method: 'POST',
-      headers: headers,
-      body: loginForm.toString(),
-      redirect: 'manual',
-    });
-
-    // Gom cookies từ response
-    const rawCookies = loginRes.headers.getSetCookie?.() ?? [];
-    const cookieStr = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
-    if (!cookieStr || !cookieStr.includes('wordpress_logged_in')) {
-      console.error('RankMath Update: Đăng nhập WP thất bại, không nhận được cookie.');
+    const session = await getWpAdminSession(siteConfig);
+    if (!session) {
+      console.warn('RankMath Update: Không lấy được session admin.');
       return;
     }
-
-    // BƯỚC 2: Lấy nonce từ dashboard (wp-admin/)
-    const editHeaders: any = {
-      'Cookie': cookieStr,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    };
-    if (basicAuthHeader) {
-      editHeaders['Authorization'] = basicAuthHeader;
-    }
-
-    const editPageRes = await fetch(`${base}/wp-admin/`, {
-      headers: editHeaders,
-    });
-    const editPageHtml = await editPageRes.text();
-
-    // Tìm nonce trong HTML (wp_rest nonce)
-    const nonceMatch = editPageHtml.match(/"nonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/rankMath.*?"nonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/"restNonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/wpApiSettings.*?"nonce":"([a-f0-9]+)"/i);
-
-    if (!nonceMatch) {
-      console.error('RankMath Update: Không tìm thấy nonce trong trang editor.');
-      return;
-    }
-    const nonce = nonceMatch[1];
 
     // BƯỚC 3: Gọi trực tiếp endpoint nội bộ của Rank Math
     const rmHeaders: any = {
       'Content-Type': 'application/json',
-      'Cookie': cookieStr,
-      'X-WP-Nonce': nonce,
+      'Cookie': session.cookieStr,
+      'X-WP-Nonce': session.nonce,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     };
-    if (basicAuthHeader) {
-      rmHeaders['Authorization'] = basicAuthHeader;
-    }
+
+    // Nếu cấu hình có basic auth (như cấu hình http auth ngoài của website)
+    const base = siteConfig.wp_url.replace(/\/$/, '');
+    const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+    let loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
+    try {
+      const urlObj = new URL(loginUrl);
+      if (urlObj.username && urlObj.password) {
+        rmHeaders['Authorization'] = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
+      }
+    } catch (e) { }
 
     const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
       method: 'POST',
@@ -133,6 +71,70 @@ async function updateRankMathViaAdminSession(
   }
 }
 
+/**
+ * Hàm cập nhật Category Description qua giao diện wp-admin để tránh bị REST API tự động xóa thẻ HTML
+ */
+async function updateCategoryDescriptionViaAdmin(
+  categoryId: number,
+  title: string,
+  slug: string,
+  descriptionHtml: string,
+  siteConfig: any
+) {
+  const session = await getWpAdminSession(siteConfig);
+  if (!session) {
+    console.warn('Update Category HTML: Không lấy được session admin.');
+    return;
+  }
+  
+  const base = siteConfig.wp_url.replace(/\/$/, '');
+  
+  try {
+    // 1. Fetch trang edit-tags.php để lấy form nonce
+    const editUrl = `${base}/wp-admin/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
+    const getRes = await fetch(editUrl, {
+      headers: {
+        'Cookie': session.cookieStr,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    const html = await getRes.text();
+    
+    // Tìm _wpnonce cho form edit tag
+    const nonceMatch = html.match(/<input type="hidden" id="_wpnonce" name="_wpnonce" value="([^"]+)"/);
+    if (!nonceMatch) {
+      console.warn('Update Category HTML: Không tìm thấy _wpnonce trên trang term.php.');
+      return;
+    }
+    const formNonce = nonceMatch[1];
+    
+    // 2. Submit form lên edit-tags.php
+    const formData = new URLSearchParams();
+    formData.append('action', 'editedtag');
+    formData.append('tag_ID', categoryId.toString());
+    formData.append('taxonomy', 'category');
+    formData.append('_wpnonce', formNonce);
+    formData.append('name', title);
+    formData.append('slug', slug);
+    formData.append('description', descriptionHtml);
+    
+    const postRes = await fetch(`${base}/wp-admin/edit-tags.php`, {
+      method: 'POST',
+      headers: {
+        'Cookie': session.cookieStr,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': editUrl
+      },
+      body: formData.toString()
+    });
+    
+    console.log(`Update Category HTML (${categoryId}) via Admin: Status ${postRes.status}`);
+  } catch (e) {
+    console.error('Update Category HTML Failed:', e);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -141,12 +143,37 @@ export async function POST(req: Request) {
     // Xử lý tạo Token Base64 từ credential
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
 
-    const headers = {
+    let headers: any = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
+
+    // Kiểm tra xem Basic Auth có bị Firewall chặn không (giống checkConnection)
+    const checkEndpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
+    const checkRes = await fetch(checkEndpoint, { method: "GET", headers });
+    if (!checkRes.ok) {
+      console.log('WP POST: Basic Auth failed, trying Cookie fallback...');
+      const session = await getWpAdminSession(siteConfig);
+      if (session) {
+        // Nếu lấy được session, dùng Session thay thế cho Basic Auth
+        headers = {
+          'Cookie': session.cookieStr,
+          'X-WP-Nonce': session.nonce,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+        // Lưu vào siteConfig để truyền cho imageProcessor
+        siteConfig.authHeaders = {
+          'Cookie': session.cookieStr,
+          'X-WP-Nonce': session.nonce
+        };
+      } else {
+        console.error('WP POST: Cả Basic Auth và Cookie Auth đều thất bại.');
+      }
+    }
 
     let finalTitle = postData.title;
     let finalContent = "";
@@ -176,10 +203,13 @@ export async function POST(req: Request) {
 
     if (postType === 'category') {
       endpointStr = 'categories';
+      const catSlug = postData.slug || (finalTitle ? finalTitle.toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '-').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\-]/g, "") : 'auto-cat');
+
+      // Tạo category trước với chuỗi rỗng để chiếm chỗ và lấy ID
       wpPayload = {
         name: finalTitle || 'Chuyên mục Auto',
-        description: finalContent,
-        slug: postData.slug || (finalTitle ? finalTitle.toLowerCase().replace(/ /g, '-') : 'auto-cat'),
+        description: '...',
+        slug: catSlug,
       };
 
       const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/${endpointStr}`;
@@ -192,11 +222,23 @@ export async function POST(req: Request) {
 
       if (response.ok || response.status === 201) {
         const data = JSON.parse(responseText);
-        if (data.id) {
-          updateRankMathViaAdminSession(data.id, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
-            .catch(e => console.error('RankMath update error:', e));
+        const catId = data.id;
+
+        // Xử lý ảnh cho danh mục
+        let imageProcessResult;
+        if (postData.imageType === 'caption') {
+          imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
+        } else {
+          imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, catSlug, postData.keyword || finalTitle, siteConfig);
         }
-        return NextResponse.json({ success: true, url: data.link, wp_id: data.id });
+
+        // Cập nhật Description qua Admin Session để giữ lại toàn bộ HTML
+        await updateCategoryDescriptionViaAdmin(catId, finalTitle, catSlug, imageProcessResult.processedHtml, siteConfig);
+
+        updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
+          .catch(e => console.error('RankMath update error:', e));
+
+        return NextResponse.json({ success: true, url: data.link, wp_id: catId });
       } else {
         return NextResponse.json({ success: false, message: `Lỗi tạo category: ${response.status} - ${responseText}` }, { status: response.status });
       }
