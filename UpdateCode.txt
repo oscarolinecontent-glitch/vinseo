@@ -1,6 +1,6 @@
 //Update Code lên Github
 git add .
-git commit -m "update link  docs 5"
+git commit -m "update link  docs 6"
 git push
 
 // Cập nhật trên local trước để test

@@ -198,7 +198,9 @@ export const parseGoogleDoc = async (docUrl: string) => {
             const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
             
             // Tìm phần tử con TRỰC TIẾP của <p> chứa img (img hoặc wrapper span)
-            const $imgDirectChildOfP = $img.parent().is($parentP) ? $img : $img.parentsUntil($parentP).last();
+            const $imgDirectChildOfP = $img.parent().is($parentP) 
+                ? $img 
+                : $img.parentsUntil($parentP[0] as any).last();
             
             // Nếu là caption hợp lệ thì gán attribute, ngược lại vẫn PHẢI xóa text thừa khỏi <p>
             // để imageProcessor không bị nhầm là có text và dùng replaceWith thay vì html()
