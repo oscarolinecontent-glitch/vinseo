@@ -4,7 +4,12 @@ import * as cheerio from 'cheerio';
 export const parseGoogleDoc = async (docUrl: string) => {
   try {
     // 1. Trích xuất Document ID từ URL
-    const match = docUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    // Hỗ trợ các định dạng:
+    // - https://docs.google.com/document/d/{ID}/edit
+    // - https://docs.google.com/open?id={ID}
+    // - https://drive.google.com/open?id={ID}
+    const match = docUrl.match(/\/d\/([a-zA-Z0-9-_]+)/) 
+                || docUrl.match(/[?&]id=([a-zA-Z0-9-_]+)/);
     if (!match || !match[1]) {
       throw new Error("Link Google Docs không hợp lệ.");
     }
@@ -186,18 +191,26 @@ export const parseGoogleDoc = async (docUrl: string) => {
             .text().trim();
 
         if (parentTextAfterImg !== '') {
-            // CASE 1: Caption nằm CÙNG thẻ p với ảnh: <p><img><i>Caption text</i></p>
+            // CASE 1: Caption nằm CÙNG thẻ p với ảnh
+            // Cấu trúc 1: <p><img><i>Caption</i></p>  (img trực tiếp trong p)
+            // Cấu trúc 2: <p><span style="overflow:hidden"><img/></span><span class="c6">Caption</span></p>  (Google Docs non-paged)
             const isShort = parentTextAfterImg.length < 200;
             const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
             
+            // Tìm phần tử con TRỰC TIẾP của <p> chứa img (img hoặc wrapper span)
+            const $imgDirectChildOfP = $img.parent().is($parentP) ? $img : $img.parentsUntil($parentP).last();
+            
+            // Nếu là caption hợp lệ thì gán attribute, ngược lại vẫn PHẢI xóa text thừa khỏi <p>
+            // để imageProcessor không bị nhầm là có text và dùng replaceWith thay vì html()
             if (isShort && hasNoEndPunct) {
                 $img.attr('data-temp-caption', parentTextAfterImg);
-                $parentP.contents().each((_, node) => {
-                    if (node !== el) {
-                        $(node).remove();
-                    }
-                });
             }
+            // Xóa tất cả anh em trừ phần tử chứa img (luôn làm để p chỉ còn ảnh)
+            $parentP.contents().each((_, node) => {
+                if ($(node)[0] !== $imgDirectChildOfP[0]) {
+                    $(node).remove();
+                }
+            });
         } else {
             // CASE 2: Thẻ p chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp (bỏ qua khoảng trắng)
             let $currNode = $parentP.next();
