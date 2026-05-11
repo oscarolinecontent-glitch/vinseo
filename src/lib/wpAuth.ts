@@ -28,7 +28,9 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     });
     
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
-    let loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
+    // Normalize: nếu không phải URL đầy đủ mà thiếu dấu / ở đầu thì tự thêm vào
+    const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
+    let loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
 
     let basicAuthHeader = '';
     try {
@@ -83,9 +85,10 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     const editPageHtml = await editPageRes.text();
 
     // Ưu tiên lấy nonce chuẩn của WordPress REST API (wpApiSettings) thay vì nonce của các plugin khác
-    const nonceMatch = editPageHtml.match(/wpApiSettings.*?"nonce":"([a-f0-9]+)"/i)
+    // Dùng [\s\S]*? thay vì .*? để khớp qua nhiều dòng (dotAll)
+    const nonceMatch = editPageHtml.match(/wpApiSettings[\s\S]*?"nonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/"restNonce":"([a-f0-9]+)"/i)
-      || editPageHtml.match(/rankMath.*?"nonce":"([a-f0-9]+)"/i)
+      || editPageHtml.match(/rankMath[\s\S]*?"nonce":"([a-f0-9]+)"/i)
       || editPageHtml.match(/"nonce":"([a-f0-9]+)"/i);
 
     if (!nonceMatch) {

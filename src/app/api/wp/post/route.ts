@@ -16,14 +16,6 @@ async function updateRankMathViaAdminSession(
   categoryId: string | number,
   siteConfig: any
 ) {
-  const base = siteConfig.wp_url.replace(/\/$/, '');
-  const loginPass = siteConfig.wp_password; // Mật khẩu đăng nhập thực sự (khác app password)
-
-  if (!loginPass) {
-    console.warn('RankMath Update: Không có wp_password, bỏ qua.');
-    return;
-  }
-
   try {
     const session = await getWpAdminSession(siteConfig);
     if (!session) {
@@ -31,7 +23,9 @@ async function updateRankMathViaAdminSession(
       return;
     }
 
-    // BƯỚC 3: Gọi trực tiếp endpoint nội bộ của Rank Math
+    const base = siteConfig.wp_url.replace(/\/$/, '');
+
+    // Headers gọi Rank Math API
     const rmHeaders: any = {
       'Content-Type': 'application/json',
       'Cookie': session.cookieStr,
@@ -39,10 +33,10 @@ async function updateRankMathViaAdminSession(
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     };
 
-    // Nếu cấu hình có basic auth (như cấu hình http auth ngoài của website)
-    const base = siteConfig.wp_url.replace(/\/$/, '');
+    // Thêm Basic Auth nếu login path có nhúng credentials (http://user:pass@domain.com/wp-login.php)
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
-    let loginUrl = loginPath.startsWith('http') ? loginPath : `${base}${loginPath}`;
+    const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
+    const loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
     try {
       const urlObj = new URL(loginUrl);
       if (urlObj.username && urlObj.password) {
