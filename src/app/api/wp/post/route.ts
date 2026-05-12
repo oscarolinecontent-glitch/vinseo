@@ -320,9 +320,9 @@ export async function POST(req: Request) {
         })
       });
 
-      // Ép đè RankMath meta (bao gồm Primary Category)
-      updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', postData.categoryId || '', siteConfig)
-        .catch(e => console.error('RankMath update background error:', e));
+      // Ép đè RankMath meta (await để đảm bảo hoàn thành trước khi Vercel kill function)
+      await updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', postData.categoryId || '', siteConfig)
+        .catch(e => console.error('RankMath update error:', e));
 
       return NextResponse.json({ success: true, url: data.link, wp_id: postId });
     }
