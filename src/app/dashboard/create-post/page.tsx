@@ -127,9 +127,11 @@ export default function CreatePostPage() {
   };
 
   const removePost = (id: string) => {
-    if (posts.length > 1) {
-      setPosts(posts.filter(p => p.id !== id));
-    }
+    setPosts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const clearAllPosts = () => {
+    setPosts([]);
   };
 
   const handleExcelImport = () => {
@@ -323,9 +325,14 @@ export default function CreatePostPage() {
                 </button>
               </div>
             </div>
-            <button onClick={addPost} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
-              <Plus size={14} /> Thêm 1 dòng
-            </button>
+            <div className="flex gap-2">
+              <button onClick={addPost} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
+                <Plus size={14} /> Thêm 1 dòng
+              </button>
+              <button onClick={clearAllPosts} className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 text-xs font-semibold px-3 py-1.5 rounded border border-red-200 dark:border-red-800 transition">
+                <Trash2 size={14} /> Xóa tất cả
+              </button>
+            </div>
           </div>
 
           <div className="mb-6 p-4 bg-violet-500/5 border border-violet-500/20 rounded-lg">
@@ -335,7 +342,7 @@ export default function CreatePostPage() {
               <textarea 
                 value={excelText} 
                 onChange={(e) => setExcelText(e.target.value)} 
-                placeholder="https://docs.google.com/document/d/... &#9; the-thao" 
+                placeholder="https://docs.google.com/document/d/... &#9;  thể thao" 
                 className="flex-1 h-16 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition"
               />
               <button onClick={handleExcelImport} className="bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold px-4 py-2 rounded-md transition-colors whitespace-nowrap">
@@ -371,7 +378,11 @@ export default function CreatePostPage() {
               <div className="col-span-1 text-center">Xóa</div>
             </div>
 
-            {posts.map((post, index) => (
+            {posts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
+                <p className="text-gray-400 dark:text-gray-500 text-sm mb-3">Chưa có dòng nào. Thêm link hoặc nhập từ Excel.</p>
+              </div>
+            ) : posts.map((post, index) => (
               <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-md p-2`}>
                 <div className="col-span-3">
                   <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="Link Google Docs..." className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500" />

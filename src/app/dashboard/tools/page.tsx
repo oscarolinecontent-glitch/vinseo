@@ -47,7 +47,7 @@ export default function ToolsPage() {
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{tool.name}</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 line-clamp-3">{tool.desc}</p>
             </div>
-            
+
             {tool.status === 'Sẵn sàng' ? (
               <Link href={tool.link} className="flex items-center text-sm font-semibold text-violet-600 dark:text-violet-400 hover:text-fuchsia-600 dark:hover:text-fuchsia-400">
                 Sử dụng công cụ <ArrowRight size={16} className="ml-1" />
