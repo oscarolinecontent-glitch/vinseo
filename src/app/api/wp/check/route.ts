@@ -10,6 +10,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, message: "Thiếu thông tin kết nối" }, { status: 400 });
     }
 
+    let urlToUse = siteConfig.wp_url.trim();
+    if (!urlToUse.startsWith('http://') && !urlToUse.startsWith('https://')) {
+      urlToUse = 'https://' + urlToUse;
+    }
+
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
     const headers: any = {
       'Authorization': `Basic ${credentials}`,
@@ -18,7 +23,7 @@ export async function POST(req: Request) {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
 
-    const endpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
+    const endpoint = `${urlToUse.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
     let response = await fetch(endpoint, {
       method: "GET",
       headers: headers
@@ -86,6 +91,7 @@ export async function POST(req: Request) {
     }
 
   } catch (error: any) {
+    console.error('API /api/wp/check Unhandled Error:', error);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
