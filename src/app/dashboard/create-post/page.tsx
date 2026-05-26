@@ -218,6 +218,11 @@ export default function CreatePostPage() {
       } catch (err: any) {
         setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: err.message } : item));
       }
+
+      // Thêm thời gian nghỉ (delay 3 giây) giữa các bài viết để chống Firewall block IP (ngoại trừ bài cuối)
+      if (i < posts.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
     }
 
     setLoading(false);

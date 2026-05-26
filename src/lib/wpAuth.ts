@@ -46,7 +46,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     const headers: any = {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
       'Referer': loginUrl,
       'Origin': base
     };
@@ -73,7 +73,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
 
     const editHeaders: any = {
       'Cookie': cookieStr,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
     };
     if (basicAuthHeader) {
       editHeaders['Authorization'] = basicAuthHeader;

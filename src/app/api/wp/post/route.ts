@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import dns from 'dns';
+
+// Fix lỗi timeout do Node.js ưu tiên IPv6 nhưng mạng 4G/NAT64 bị kẹt (bug của fetch/undici)
+dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
@@ -30,7 +34,7 @@ async function updateRankMathViaAdminSession(
       'Content-Type': 'application/json',
       'Cookie': session.cookieStr,
       'X-WP-Nonce': session.nonce,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
     };
 
     // Thêm Basic Auth nếu login path có nhúng credentials (http://user:pass@domain.com/wp-login.php)
@@ -89,7 +93,7 @@ async function updateCategoryDescriptionViaAdmin(
     const getRes = await fetch(editUrl, {
       headers: {
         'Cookie': session.cookieStr,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
       }
     });
     const html = await getRes.text();
@@ -117,7 +121,7 @@ async function updateCategoryDescriptionViaAdmin(
       headers: {
         'Cookie': session.cookieStr,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
         'Referer': editUrl
       },
       body: formData.toString()
@@ -134,6 +138,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { siteConfig, postData } = body;
 
+    if (!siteConfig || !siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
+      return NextResponse.json({ success: false, message: "Thiếu thông tin kết nối (siteConfig)" }, { status: 400 });
+    }
+
+    let urlToUse = siteConfig.wp_url.trim();
+    if (!urlToUse.startsWith('http://') && !urlToUse.startsWith('https://')) {
+      urlToUse = 'https://' + urlToUse;
+    }
+    siteConfig.wp_url = urlToUse; // Update it so subsequent functions use the right URL
+
     // Xử lý tạo Token Base64 từ credential
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
 
@@ -141,11 +155,11 @@ export async function POST(req: Request) {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
     };
 
     // Kiểm tra xem Basic Auth có bị Firewall chặn không (giống checkConnection)
-    const checkEndpoint = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
+    const checkEndpoint = `${urlToUse.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
     const checkRes = await fetch(checkEndpoint, { method: "GET", headers });
     if (!checkRes.ok) {
       console.log('WP POST: Basic Auth failed, trying Cookie fallback...');
@@ -157,7 +171,7 @@ export async function POST(req: Request) {
           'X-WP-Nonce': session.nonce,
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/plain, */*',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
         };
         // Lưu vào siteConfig để truyền cho imageProcessor
         siteConfig.authHeaders = {
@@ -293,6 +307,7 @@ export async function POST(req: Request) {
       try {
         data = JSON.parse(responseText);
       } catch (parseError) {
+        console.error("WP API trả về không phải JSON:", responseText.substring(0, 500));
         return NextResponse.json({ success: false, message: "WP trả về dữ liệu không hợp lệ." }, { status: 500 });
       }
 
@@ -328,6 +343,7 @@ export async function POST(req: Request) {
     }
 
   } catch (error: any) {
+    console.error('API /api/wp/post Unhandled Error:', error);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

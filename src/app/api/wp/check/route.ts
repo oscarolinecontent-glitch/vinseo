@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import dns from 'dns';
+
+// Fix lỗi timeout do Node.js ưu tiên IPv6 nhưng mạng 4G/NAT64 bị kẹt (bug của fetch/undici)
+dns.setDefaultResultOrder('ipv4first');
 import { getWpAdminSession } from '@/lib/wpAuth';
 
 export async function POST(req: Request) {
@@ -20,7 +24,7 @@ export async function POST(req: Request) {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
     };
 
     const endpoint = `${urlToUse.replace(/\/$/, "")}/wp-json/wp/v2/users/me`;
@@ -40,7 +44,7 @@ export async function POST(req: Request) {
           'X-WP-Nonce': session.nonce,
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/plain, */*',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
         };
         const fallbackResponse = await fetch(endpoint, {
           method: "GET",
