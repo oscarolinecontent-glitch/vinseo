@@ -243,7 +243,7 @@ export async function POST(req: Request) {
         // Cập nhật Description qua Admin Session để giữ lại toàn bộ HTML
         await updateCategoryDescriptionViaAdmin(catId, finalTitle, catSlug, imageProcessResult.processedHtml, siteConfig);
 
-        updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
+        await updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
           .catch(e => console.error('RankMath update error:', e));
 
         return NextResponse.json({ success: true, url: data.link, wp_id: catId });
