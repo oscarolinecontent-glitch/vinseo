@@ -34,7 +34,8 @@ async function updateRankMathViaAdminSession(
       'Content-Type': 'application/json',
       'Cookie': session.cookieStr,
       'X-WP-Nonce': session.nonce,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
+      'Connection': 'close',
     };
 
     // Thêm Basic Auth nếu login path có nhúng credentials (http://user:pass@domain.com/wp-login.php)
@@ -93,7 +94,8 @@ async function updateCategoryDescriptionViaAdmin(
     const getRes = await fetch(editUrl, {
       headers: {
         'Cookie': session.cookieStr,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
+        'Connection': 'close'
       }
     });
     const html = await getRes.text();
@@ -121,7 +123,8 @@ async function updateCategoryDescriptionViaAdmin(
       headers: {
         'Cookie': session.cookieStr,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
+        'Connection': 'close',
         'Referer': editUrl
       },
       body: formData.toString()
@@ -155,7 +158,8 @@ export async function POST(req: Request) {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
+      'Connection': 'close'
     };
 
     // Kiểm tra xem Basic Auth có bị Firewall chặn không (giống checkConnection)
@@ -171,7 +175,8 @@ export async function POST(req: Request) {
           'X-WP-Nonce': session.nonce,
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/plain, */*',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
+          'Connection': 'close'
         };
         // Lưu vào siteConfig để truyền cho imageProcessor
         siteConfig.authHeaders = {
