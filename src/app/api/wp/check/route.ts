@@ -65,7 +65,7 @@ export async function POST(req: Request) {
         const data = JSON.parse(responseText);
         return NextResponse.json({ 
           success: true, 
-          message: usingCookieAuth ? "Kết nối thành công (Bypass WAF bằng Session)!" : "Kết nối thành công!", 
+          message: usingCookieAuth ? "Kết nối thành công" : "Kết nối thành công!", 
           user: data.name,
           usingCookieAuth 
         });

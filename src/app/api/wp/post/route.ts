@@ -7,6 +7,9 @@ import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
 
+// Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
+export const maxDuration = 300;
+
 /**
  * Giả lập browser đăng nhập WP → lấy session cookie → lấy nonce → gọi Rank Math internal API
  * Đây là cách duy nhất bypass bảo vệ REST API meta của WordPress khi không có quyền Admin.
@@ -22,26 +25,22 @@ async function updateRankMathViaAdminSession(
 ) {
   try {
     const session = await getWpAdminSession(siteConfig);
+    if (!session) {
+      console.warn('RankMath Update: Không lấy được session admin.');
+      return;
+    }
+
     const base = siteConfig.wp_url.replace(/\/$/, '');
 
     // Headers gọi Rank Math API
     const rmHeaders: any = {
       'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-      'Connection': 'close',
+      'Cookie': session.cookieStr,
+      'X-WP-Nonce': session.nonce,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
     };
 
-    if (session) {
-      rmHeaders['Cookie'] = session.cookieStr;
-      rmHeaders['X-WP-Nonce'] = session.nonce;
-      console.log('RankMath Update: Dùng Session Admin (Cookie).');
-    } else {
-      console.warn('RankMath Update: Không lấy được session admin (bị Cloudflare hoặc lỗi khác). Fallback dùng Basic Auth...');
-      const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-      rmHeaders['Authorization'] = `Basic ${credentials}`;
-    }
-
-    // Thêm Basic Auth phụ nếu login path có nhúng credentials (http://user:pass@domain.com/wp-login.php)
+    // Thêm Basic Auth nếu login path có nhúng credentials (http://user:pass@domain.com/wp-login.php)
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
     const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
     const loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
@@ -67,9 +66,9 @@ async function updateRankMathViaAdminSession(
       }),
     });
     const rmData = await rmRes.text();
-    console.log('RankMath Update Result:', rmRes.status, rmData.slice(0, 200));
+    console.log('RankMath Admin Session Update:', rmRes.status, rmData.slice(0, 200));
   } catch (e) {
-    console.error('RankMath Update Failed:', e);
+    console.error('RankMath Admin Session Update Failed:', e);
   }
 }
 
@@ -83,44 +82,25 @@ async function updateCategoryDescriptionViaAdmin(
   descriptionHtml: string,
   siteConfig: any
 ) {
-  const base = siteConfig.wp_url.replace(/\/$/, '');
   const session = await getWpAdminSession(siteConfig);
-
   if (!session) {
-    console.warn('Update Category HTML: Không lấy được session admin. Fallback cập nhật qua REST API...');
-    try {
-      const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-      const res = await fetch(`${base}/wp-json/wp/v2/categories/${categoryId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${credentials}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-          'Connection': 'close'
-        },
-        body: JSON.stringify({
-          description: descriptionHtml
-        })
-      });
-      console.log(`Update Category HTML (${categoryId}) via REST Fallback: Status ${res.status}`);
-    } catch (err) {
-      console.error('Update Category HTML REST Fallback Failed:', err);
-    }
+    console.warn('Update Category HTML: Không lấy được session admin.');
     return;
   }
-
+  
+  const base = siteConfig.wp_url.replace(/\/$/, '');
+  
   try {
     // 1. Fetch trang edit-tags.php để lấy form nonce
     const editUrl = `${base}/wp-admin/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
     const getRes = await fetch(editUrl, {
       headers: {
         'Cookie': session.cookieStr,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-        'Connection': 'close'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
       }
     });
     const html = await getRes.text();
-
+    
     // Tìm _wpnonce cho form edit tag
     const nonceMatch = html.match(/<input type="hidden" id="_wpnonce" name="_wpnonce" value="([^"]+)"/);
     if (!nonceMatch) {
@@ -128,7 +108,7 @@ async function updateCategoryDescriptionViaAdmin(
       return;
     }
     const formNonce = nonceMatch[1];
-
+    
     // 2. Submit form lên edit-tags.php
     const formData = new URLSearchParams();
     formData.append('action', 'editedtag');
@@ -138,19 +118,18 @@ async function updateCategoryDescriptionViaAdmin(
     formData.append('name', title);
     formData.append('slug', slug);
     formData.append('description', descriptionHtml);
-
+    
     const postRes = await fetch(`${base}/wp-admin/edit-tags.php`, {
       method: 'POST',
       headers: {
         'Cookie': session.cookieStr,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-        'Connection': 'close',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
         'Referer': editUrl
       },
       body: formData.toString()
     });
-
+    
     console.log(`Update Category HTML (${categoryId}) via Admin: Status ${postRes.status}`);
   } catch (e) {
     console.error('Update Category HTML Failed:', e);
@@ -179,8 +158,7 @@ export async function POST(req: Request) {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-      'Connection': 'close'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
     };
 
     // Kiểm tra xem Basic Auth có bị Firewall chặn không (giống checkConnection)
@@ -196,8 +174,7 @@ export async function POST(req: Request) {
           'X-WP-Nonce': session.nonce,
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/plain, */*',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-          'Connection': 'close'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
         };
         // Lưu vào siteConfig để truyền cho imageProcessor
         siteConfig.authHeaders = {
@@ -269,7 +246,7 @@ export async function POST(req: Request) {
         // Cập nhật Description qua Admin Session để giữ lại toàn bộ HTML
         await updateCategoryDescriptionViaAdmin(catId, finalTitle, catSlug, imageProcessResult.processedHtml, siteConfig);
 
-        await updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
+        updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
           .catch(e => console.error('RankMath update error:', e));
 
         return NextResponse.json({ success: true, url: data.link, wp_id: catId });
@@ -286,7 +263,7 @@ export async function POST(req: Request) {
       endpointStr = postType === 'page' ? 'pages' : 'posts';
       wpPayload = {
         title: finalTitle || 'Bài viết Auto generated',
-        content: finalContent, // Gửi tạm content chưa xử lý ảnh để xí chỗ slug trước
+        content: "Đang tải nội dung...", // Gửi nội dung tạm để xí chỗ slug trước, tránh làm sập WP nếu raw HTML quá lớn
         slug: finalSlug,
         status: postData.status || "draft",
         meta: {

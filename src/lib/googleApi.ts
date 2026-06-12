@@ -151,7 +151,11 @@ export const parseGoogleDoc = async (docUrl: string) => {
         if (isBold || isItalic) {
             let innerHtml = $el.html() || '';
             if (isBold) innerHtml = `<b>${innerHtml}</b>`;
-            if (isItalic) innerHtml = `<i>${innerHtml}</i>`;
+            if (isItalic) {
+                innerHtml = `<i>${innerHtml}</i>`;
+                // Đánh dấu thẻ p là có chứa italic để caption extractor nhận ra
+                if (tag === 'p') $el.attr('data-temp-italic', '1');
+            }
             $el.html(innerHtml);
         }
 
@@ -173,86 +177,6 @@ export const parseGoogleDoc = async (docUrl: string) => {
             }
             if (align) {
                 $el.attr('data-temp-align', align);
-            }
-        }
-    });
-
-    // 3. Xử lý Image Caption: Lấy mô tả ảnh từ 2 cấu trúc phổ biến của Google Docs
-    $('img').each((index, el) => {
-        // Bỏ qua ảnh đầu tiên vì nó là Thumbnail, đoạn text dưới nó là Meta Description chứ không phải Caption
-        if (index === 0) return;
-
-        const $img = $(el);
-        const $parentP = $img.closest('p');
-        if ($parentP.length === 0) return;
-
-        const parentTextAfterImg = $parentP.clone()
-            .find('img').remove().end()
-            .text().trim();
-
-        if (parentTextAfterImg !== '') {
-            // CASE 1: Caption nằm CÙNG thẻ p với ảnh
-            // Cấu trúc 1: <p><img><i>Caption</i></p>  (img trực tiếp trong p)
-            // Cấu trúc 2: <p><span style="overflow:hidden"><img/></span><span class="c6">Caption</span></p>  (Google Docs non-paged)
-            const isShort = parentTextAfterImg.length < 200;
-            const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
-            
-            // Tìm phần tử con TRỰC TIẾP của <p> chứa img (img hoặc wrapper span)
-            const $imgDirectChildOfP = $img.parent().is($parentP) 
-                ? $img 
-                : $img.parentsUntil($parentP[0] as any).last();
-            
-            // Nếu là caption hợp lệ thì gán attribute, ngược lại vẫn PHẢI xóa text thừa khỏi <p>
-            // để imageProcessor không bị nhầm là có text và dùng replaceWith thay vì html()
-            if (isShort && hasNoEndPunct) {
-                $img.attr('data-temp-caption', parentTextAfterImg);
-            }
-            // Xóa tất cả anh em trừ phần tử chứa img (luôn làm để p chỉ còn ảnh)
-            $parentP.contents().each((_, node) => {
-                if ($(node)[0] !== $imgDirectChildOfP[0]) {
-                    $(node).remove();
-                }
-            });
-        } else {
-            // CASE 2: Thẻ p chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp (bỏ qua khoảng trắng)
-            let $currNode = $parentP.next();
-            let $captionNode = null;
-            let captionText = '';
-            let emptyNodesToRemove: any[] = [];
-            
-            // Rà tối đa 5 node kế tiếp để tìm caption
-            for (let i = 0; i < 5; i++) {
-                if ($currNode.length === 0) break;
-                
-                // Nếu gặp thẻ heading hoặc gặp ảnh khác thì dừng (chắc chắn không phải caption)
-                const nodeTag = ($currNode[0] as any).tagName?.toLowerCase() || '';
-                if (/^h[1-6]$/.test(nodeTag) || $currNode.find('img').length > 0) {
-                    break;
-                }
-
-                const text = $currNode.text().trim();
-                if (text.length === 0) {
-                    // Thẻ rỗng (khoảng trắng) -> Đưa vào danh sách chờ xóa để code sạch
-                    emptyNodesToRemove.push($currNode);
-                    $currNode = $currNode.next();
-                } else {
-                    // Tìm thấy text! Kiểm tra xem độ dài và dấu câu có phù hợp làm caption không
-                    const isShort = text.length < 200;
-                    const hasNoEndPunct = !/[.!:,;]$/.test(text);
-                    
-                    if (isShort && hasNoEndPunct) {
-                        $captionNode = $currNode;
-                        captionText = text;
-                    }
-                    break; // Gặp text rồi thì dừng, không rà thêm nữa
-                }
-            }
-
-            if ($captionNode && captionText) {
-                $img.attr('data-temp-caption', captionText);
-                $captionNode.remove();
-                // Xóa luôn các khoảng trắng giữa ảnh và caption để tránh bị cách một mảng trắng lớn
-                emptyNodesToRemove.forEach($node => $node.remove());
             }
         }
     });
@@ -349,6 +273,80 @@ export const parseGoogleDoc = async (docUrl: string) => {
 
     const $content = cheerio.load('<div></div>');
     $content('div').append(contentNodes);
+
+    // 6. Xử lý Image Caption (Chỉ tìm trong phần Content, bỏ qua Thumbnail)
+    $content('img').each((_, el) => {
+        const $img = $content(el);
+        const $parentP = $img.closest('p');
+
+        // Tìm block container gần nhất (p hoặc div/figure nếu Google Docs bọc ảnh trong div)
+        const $blockContainer = $parentP.length > 0 
+            ? $parentP 
+            : $img.closest('div, figure, td');
+
+        if ($blockContainer.length === 0) return;
+
+        const parentTextAfterImg = $blockContainer.clone()
+            .find('img').remove().end()
+            .text().trim();
+
+        if (parentTextAfterImg !== '') {
+            // CASE 1: Caption nằm CÙNG block với ảnh
+            // Câu ngắn (<200 ký tự) và không kết thúc bằng dấu chấm = chú thích
+            const isShort = parentTextAfterImg.length < 200;
+            const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
+            
+            const $imgDirectChildOfBlock = $img.parent().is($blockContainer) 
+                ? $img 
+                : $img.parentsUntil($blockContainer[0] as any).last();
+            
+            if (isShort && hasNoEndPunct) {
+                $img.attr('data-temp-caption', parentTextAfterImg);
+            }
+            $blockContainer.contents().each((_, node) => {
+                if ($content(node)[0] !== $imgDirectChildOfBlock[0]) {
+                    $content(node).remove();
+                }
+            });
+        } else {
+            // CASE 2: Block chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp
+            let $currNode = $blockContainer.next();
+            let $captionNode = null;
+            let captionText = '';
+            let emptyNodesToRemove: any[] = [];
+            
+            for (let i = 0; i < 5; i++) {
+                if ($currNode.length === 0) break;
+                
+                const nodeTag = ($currNode[0] as any).tagName?.toLowerCase() || '';
+                if (/^h[1-6]$/.test(nodeTag) || $currNode.find('img').length > 0) {
+                    break;
+                }
+
+                const text = $currNode.text().trim();
+                if (text.length === 0) {
+                    emptyNodesToRemove.push($currNode);
+                    $currNode = $currNode.next();
+                } else {
+                    // Câu ngắn (<200 ký tự) và không kết thúc bằng dấu chấm = chú thích
+                    const isShort = text.length < 200;
+                    const hasNoEndPunct = !/[.!:,;]$/.test(text);
+                    
+                    if (isShort && hasNoEndPunct) {
+                        $captionNode = $currNode;
+                        captionText = text;
+                    }
+                    break;
+                }
+            }
+
+            if ($captionNode && captionText) {
+                $img.attr('data-temp-caption', captionText);
+                $captionNode.remove();
+                emptyNodesToRemove.forEach($node => $node.remove());
+            }
+        }
+    });
 
     // --- DỌN DẸP HTML SẠCH SẼ ---
     $content('style, script, meta').remove();

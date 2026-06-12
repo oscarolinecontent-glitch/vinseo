@@ -14,7 +14,7 @@ export default function ToolsPage() {
     },
     {
       id: 'image-optimizer',
-      name: 'Tối ưu ảnh WebP (Đang phát triển)',
+      name: 'Tối ưu ảnh Webp (Đang phát triển)',
       desc: 'Tự động tải ảnh từ Google Docs, nén sang WebP và Upload lên Media Library WordPress.',
       icon: <ImageIcon className="text-blue-400" size={24} />,
       link: '#',

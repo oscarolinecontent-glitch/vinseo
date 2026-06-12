@@ -115,11 +115,11 @@ export default function ProjectsPage() {
             </div>
             <div>
               <label className="text-xs text-gray-600 dark:text-gray-400">WP Username</label>
-              <input required value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
+              <input required autoComplete="new-password" value={newProject.wp_user} onChange={e => setNewProject({...newProject, wp_user: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs text-gray-600 dark:text-gray-400">App Password (REST API)</label>
-              <input required type="password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
+              <input required type="password" autoComplete="new-password" value={newProject.wp_app_pass} onChange={e => setNewProject({...newProject, wp_app_pass: e.target.value})} className="w-full mt-1 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-violet-500 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs text-gray-600 dark:text-gray-400">

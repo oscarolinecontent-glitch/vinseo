@@ -1,7 +1,0 @@
-//Update Code lên Github
-git add .
-git commit -m "update 26/5/2"
-git push
-
-// Cập nhật trên local trước để test
-npm run dev

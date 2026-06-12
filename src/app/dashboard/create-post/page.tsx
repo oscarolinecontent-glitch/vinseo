@@ -188,40 +188,73 @@ export default function CreatePostPage() {
       // Update status to loading
       updatePost(p.id, 'resultStatus', 'loading');
 
-      try {
-        const res = await fetch('/api/wp/post', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            siteConfig,
-            postData: {
-              gdoc_url: p.gdoc_url,
-              title: p.title, 
-              postType: p.postType,
-              status: p.status,
-              categoryId: parseInt(p.categoryId),
-              meta_desc: p.meta_desc,
-              keyword: p.keyword,
-              imageType: imageType
-            }
-          })
-        });
+      let attempt = 1;
+      let success = false;
+      const maxAttempts = 2;
 
-        const data = await res.json();
-        
-        if (data.success) {
-          setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'success', resultMessage: 'Đăng thành công!', resultUrl: data.url } : item));
-        } else {
-          setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: data.message } : item));
+      while (attempt <= maxAttempts && !success) {
+        if (attempt === 2) {
+          updatePost(p.id, 'resultMessage', 'Lỗi lần 1, đang thử lại lần 2...');
         }
 
-      } catch (err: any) {
-        setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: err.message } : item));
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 150000);
+
+          const res = await fetch('/api/wp/post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              siteConfig,
+              postData: {
+                gdoc_url: p.gdoc_url,
+                title: p.title, 
+                postType: p.postType,
+                status: p.status,
+                categoryId: parseInt(p.categoryId),
+                meta_desc: p.meta_desc,
+                keyword: p.keyword,
+                imageType: imageType
+              }
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+
+          const data = await res.json();
+          
+          if (data.success) {
+            setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'success', resultMessage: 'Đăng thành công!', resultUrl: data.url } : item));
+            success = true;
+          } else {
+            if (attempt === maxAttempts) {
+              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: data.message } : item));
+            }
+          }
+
+        } catch (err: any) {
+          if (attempt === maxAttempts) {
+            if (err.name === 'AbortError') {
+              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: 'Lỗi: Thời gian chờ quá lâu (Timeout). Server WP không phản hồi.' } : item));
+            } else {
+              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: err.message } : item));
+            }
+          }
+        }
+
+        if (!success) {
+          attempt++;
+          if (attempt <= maxAttempts) {
+             // Nghỉ 2 giây trước khi thử lại để xả tài nguyên
+             await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
       }
 
-      // Thêm thời gian nghỉ (delay 3 giây) giữa các bài viết để chống Firewall block IP (ngoại trừ bài cuối)
+      // Thêm thời gian nghỉ (delay 2 giây) giữa các bài viết để chống Firewall block IP (ngoại trừ bài cuối)
       if (i < posts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
 
@@ -280,7 +313,7 @@ export default function CreatePostPage() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Username</label>
-              <input type="text" name="wp_user" value={siteConfig.wp_user} onChange={handleConfigChange} placeholder="admin" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
+              <input type="text" autoComplete="new-password" name="wp_user" value={siteConfig.wp_user} onChange={handleConfigChange} placeholder="admin" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
@@ -344,7 +377,7 @@ export default function CreatePostPage() {
             <label className="text-xs font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-2 block">Nhập hàng loạt từ Excel / Google Sheets</label>
             <p className="text-xs text-gray-500 mb-2">Copy các cột từ Excel và dán vào ô dưới đây. (Cột 1: Link Docs, Cột 2: Từ khóa chính, Cột 3: Meta Desc).</p>
             <div className="flex gap-2">
-              <textarea 
+                <textarea 
                 value={excelText} 
                 onChange={(e) => setExcelText(e.target.value)} 
                 placeholder="https://docs.google.com/document/d/... &#9;  thể thao" 
@@ -388,7 +421,13 @@ export default function CreatePostPage() {
                 <p className="text-gray-400 dark:text-gray-500 text-sm mb-3">Chưa có dòng nào. Thêm link hoặc nhập từ Excel.</p>
               </div>
             ) : posts.map((post, index) => (
-              <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-md p-2`}>
+              <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center border rounded-md p-2 transition-colors ${
+                post.resultStatus === 'error' 
+                  ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700' 
+                  : post.resultStatus === 'success'
+                  ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800/50'
+                  : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-gray-800'
+              }`}>
                 <div className="col-span-3">
                   <input type="url" value={post.gdoc_url} onChange={(e) => updatePost(post.id, 'gdoc_url', e.target.value)} placeholder="Link Google Docs..." className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500" />
                 </div>
@@ -423,15 +462,31 @@ export default function CreatePostPage() {
                 </div>
                 <div className="col-span-1 text-center">
                    {post.resultStatus === 'success' ? <CheckCircle2 size={16} className="inline text-green-500" /> : 
-                    post.resultStatus === 'error' ? <span className="text-red-500 font-bold text-xs">Lỗi</span> :
+                    post.resultStatus === 'error' ? (
+                      <span title={post.resultMessage || 'Lỗi không xác định'} className="cursor-help inline-flex items-center justify-center">
+                        <AlertCircle size={16} className="text-red-500 hover:text-red-400 transition-colors" />
+                      </span>
+                    ) :
                     post.resultStatus === 'loading' ? <RefreshCw size={12} className="animate-spin inline text-blue-500" /> :
                     <span className="text-gray-400 text-xs">Chờ</span>}
                 </div>
-                <div className="col-span-1 text-center">
+                <div className="col-span-1 text-center flex items-center justify-center gap-1">
                    {post.resultStatus === 'success' && post.resultUrl ? (
                       <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
                         <LinkIcon size={16} className="inline" />
                       </a>
+                   ) : null}
+                   {post.resultStatus === 'error' ? (
+                      <button
+                        title={`Thử lại: ${post.resultMessage || ''}`}
+                        onClick={() => {
+                          updatePost(post.id, 'resultStatus', 'pending');
+                          updatePost(post.id, 'resultMessage', '');
+                        }}
+                        className="text-orange-400 hover:text-orange-300 transition-colors"
+                      >
+                        <RefreshCw size={14} />
+                      </button>
                    ) : null}
                 </div>
                 <div className="col-span-1 text-center flex justify-center">
@@ -440,12 +495,7 @@ export default function CreatePostPage() {
                   </button>
                 </div>
 
-                {/* Status/Error Message Row */}
-                {post.resultStatus === 'error' && (
-                  <div className="col-span-12 mt-1 text-[11px] text-red-500 pl-2">
-                    {post.resultMessage}
-                  </div>
-                )}
+
               </div>
             ))}
           </div>

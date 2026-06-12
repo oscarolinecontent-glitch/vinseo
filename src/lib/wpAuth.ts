@@ -26,7 +26,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
       redirect_to: `/wp-admin/`,
       testcookie: '1',
     });
-    
+
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
     // Normalize: nếu không phải URL đầy đủ mà thiếu dấu / ở đầu thì tự thêm vào
     const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
@@ -46,8 +46,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     const headers: any = {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': 'wordpress_test_cookie=WP+Cookie+check',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-      'Connection': 'close',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
       'Referer': loginUrl,
       'Origin': base
     };
@@ -63,19 +62,30 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
       redirect: 'manual',
     });
 
+    let cookieStr = '';
     const rawCookies = loginRes.headers.getSetCookie?.() ?? [];
-    const cookieStr = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
+    if (rawCookies.length > 0) {
+      cookieStr = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
+    } else {
+      const setCookieStr = loginRes.headers.get('set-cookie');
+      if (setCookieStr) {
+        cookieStr = setCookieStr; // fallback for Next.js environments where getSetCookie is missing
+      }
+    }
+
     if (!cookieStr || !cookieStr.includes('wordpress_logged_in')) {
       const errorHtml = await loginRes.text();
+      const location = loginRes.headers.get('location') || '';
       console.error(`wpAuth: Login failed (Status: ${loginRes.status}), no wordpress_logged_in cookie.`);
+      if (location) console.error(`wpAuth: Redirected to: ${location}`);
+      console.error(`wpAuth: Set-Cookie: ${loginRes.headers.get('set-cookie')}`);
       console.error(`wpAuth: Response preview: ${errorHtml.slice(0, 150)}...`);
       return null;
     }
 
     const editHeaders: any = {
       'Cookie': cookieStr,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 VinSeoBot/1.0',
-      'Connection': 'close',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
     };
     if (basicAuthHeader) {
       editHeaders['Authorization'] = basicAuthHeader;
@@ -99,7 +109,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     }
 
     const result = { cookieStr, nonce: nonceMatch[1] };
-    
+
     // Lưu vào cache
     sessionCache[cacheKey] = {
       ...result,
