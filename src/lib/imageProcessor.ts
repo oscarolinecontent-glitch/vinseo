@@ -354,10 +354,10 @@ export async function processImagesByCaption(
           const isItalic = htmlStr.includes('<i') || htmlStr.includes('<em') || htmlStr.includes('font-style: italic') || htmlStr.includes('font-style:italic');
           const isMatchLastHeading = (lastHeadingText !== "" && text.toLowerCase() === lastHeadingText.toLowerCase());
           
-          // Điều kiện xử lý cứng: KHÔNG có dấu chấm câu ở CUỐI câu (nhưng cho phép dấu ?)
-          const hasNoEndPunctuation = !/[.!:,;]$/.test(text.trim());
+          // Điều kiện xử lý: Cho phép có dấu chấm (.) ở cuối câu để nhận diện chú thích tốt hơn
+          const hasNoEndPunctuation = !/[!:,;]$/.test(text.trim());
           
-          // Chú thích: thẻ p, nội dung < 200 ký tự, KHÔNG có dấu kết câu (trừ ?), và (căn giữa HOẶC in nghiêng HOẶC giống heading)
+          // Chú thích: thẻ p, nội dung < 200 ký tự, và (căn giữa HOẶC in nghiêng HOẶC giống heading)
           const isShortCaption = text.length > 2 && text.length < 200 && hasNoEndPunctuation && (isCentered || isItalic || isMatchLastHeading);
 
           if (isShortCaption) {

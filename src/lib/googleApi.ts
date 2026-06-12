@@ -292,9 +292,9 @@ export const parseGoogleDoc = async (docUrl: string) => {
 
         if (parentTextAfterImg !== '') {
             // CASE 1: Caption nằm CÙNG block với ảnh
-            // Câu ngắn (<200 ký tự) và không kết thúc bằng dấu chấm = chú thích
+            // Câu ngắn (<200 ký tự) và cho phép kết thúc bằng dấu chấm
             const isShort = parentTextAfterImg.length < 200;
-            const hasNoEndPunct = !/[.!:,;]$/.test(parentTextAfterImg.trim());
+            const hasNoEndPunct = !/[!:,;]$/.test(parentTextAfterImg.trim());
             
             const $imgDirectChildOfBlock = $img.parent().is($blockContainer) 
                 ? $img 
@@ -328,9 +328,9 @@ export const parseGoogleDoc = async (docUrl: string) => {
                     emptyNodesToRemove.push($currNode);
                     $currNode = $currNode.next();
                 } else {
-                    // Câu ngắn (<200 ký tự) và không kết thúc bằng dấu chấm = chú thích
+                    // Câu ngắn (<200 ký tự) và cho phép kết thúc bằng dấu chấm
                     const isShort = text.length < 200;
-                    const hasNoEndPunct = !/[.!:,;]$/.test(text);
+                    const hasNoEndPunct = !/[!:,;]$/.test(text.trim());
                     
                     if (isShort && hasNoEndPunct) {
                         $captionNode = $currNode;
