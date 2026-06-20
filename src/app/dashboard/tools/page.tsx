@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Puzzle, ArrowRight, FileText, Image as ImageIcon } from 'lucide-react';
+import { Puzzle, ArrowRight, FileText, Image as ImageIcon, Scaling } from 'lucide-react';
 
 export default function ToolsPage() {
   const tools = [
@@ -10,6 +10,14 @@ export default function ToolsPage() {
       desc: 'Công cụ lấy nội dung từ Google Docs, xử lý HTML và đăng bài tự động lên WordPress.',
       icon: <FileText className="text-violet-400" size={24} />,
       link: '/dashboard/create-post',
+      status: 'Sẵn sàng'
+    },
+    {
+      id: 'resize-images',
+      name: 'Resize Ảnh Hàng Loạt',
+      desc: 'Thay đổi kích thước ảnh trên bài đã đăng (VD: 723x452 → 800x450). Tự động download, resize, upload lại và cập nhật bài.',
+      icon: <Scaling className="text-emerald-400" size={24} />,
+      link: '/dashboard/tools/resize-images',
       status: 'Sẵn sàng'
     },
     {

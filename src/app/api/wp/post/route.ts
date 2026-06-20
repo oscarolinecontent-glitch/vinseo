@@ -151,6 +151,10 @@ export async function POST(req: Request) {
     }
     siteConfig.wp_url = urlToUse; // Update it so subsequent functions use the right URL
 
+    // Parse kích thước ảnh mục tiêu (nếu có)
+    if (siteConfig.image_width) siteConfig.image_width = parseInt(siteConfig.image_width, 10) || undefined;
+    if (siteConfig.image_height) siteConfig.image_height = parseInt(siteConfig.image_height, 10) || undefined;
+
     // Xử lý tạo Token Base64 từ credential
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
 

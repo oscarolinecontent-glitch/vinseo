@@ -37,7 +37,9 @@ export default function CreatePostPage() {
     wp_app_pass: '',
     wp_password: '',
     wp_login_path: '',
-    image_format: 'webp'
+    image_format: 'webp',
+    image_width: '',
+    image_height: ''
   });
 
   const [imageType, setImageType] = useState<'key' | 'caption'>('key');
@@ -68,10 +70,10 @@ export default function CreatePostPage() {
     if (pId) {
       const p = projects.find(x => x.id.toString() === pId);
       if (p) {
-        setSiteConfig({ wp_url: p.url, wp_user: p.wp_user, wp_app_pass: p.wp_app_pass, wp_password: p.wp_password || '', wp_login_path: p.wp_login_path || '', image_format: p.image_format || 'webp' });
+        setSiteConfig({ wp_url: p.url, wp_user: p.wp_user, wp_app_pass: p.wp_app_pass, wp_password: p.wp_password || '', wp_login_path: p.wp_login_path || '', image_format: p.image_format || 'webp', image_width: p.image_width || '', image_height: p.image_height || '' });
       }
     } else {
-      setSiteConfig({ wp_url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
+      setSiteConfig({ wp_url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp', image_width: '', image_height: '' });
     }
   };
 
@@ -246,15 +248,15 @@ export default function CreatePostPage() {
         if (!success) {
           attempt++;
           if (attempt <= maxAttempts) {
-             // Nghỉ 2 giây trước khi thử lại để xả tài nguyên
-             await new Promise(resolve => setTimeout(resolve, 2000));
+             // Nghỉ 3.5 giây trước khi thử lại để xả tài nguyên
+             await new Promise(resolve => setTimeout(resolve, 3500));
           }
         }
       }
 
-      // Thêm thời gian nghỉ (delay 2 giây) giữa các bài viết để chống Firewall block IP (ngoại trừ bài cuối)
+      // Thêm thời gian nghỉ (delay 3.5 giây) giữa các bài viết để chống Firewall block IP (ngoại trừ bài cuối)
       if (i < posts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3500));
       }
     }
 
@@ -328,6 +330,16 @@ export default function CreatePostPage() {
                 <option value="jpeg">JPEG (Phổ thông)</option>
                 <option value="png">PNG (Giữ nguyên nền trong suốt)</option>
               </select>
+            </div>
+            <div className="space-y-1 flex gap-3">
+              <div className="flex-1 space-y-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Chiều rộng ảnh (px)</label>
+                <input type="number" name="image_width" value={siteConfig.image_width || ''} onChange={handleConfigChange as any} placeholder="VD: 800 (để trống = giữ nguyên)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Chiều cao ảnh (px)</label>
+                <input type="number" name="image_height" value={siteConfig.image_height || ''} onChange={handleConfigChange as any} placeholder="VD: 450 (để trống = giữ nguyên)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Mật khẩu đăng nhập WP</label>

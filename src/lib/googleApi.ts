@@ -274,25 +274,25 @@ export const parseGoogleDoc = async (docUrl: string) => {
     const $content = cheerio.load('<div></div>');
     $content('div').append(contentNodes);
 
+    // Lấy toàn bộ các block chứa text để dễ dàng duyệt tuần tự (không sợ bị lồng DOM)
+    const allBlocks = $content('p, h1, h2, h3, h4, h5, h6, li, td').toArray();
+
     // 6. Xử lý Image Caption (Chỉ tìm trong phần Content, bỏ qua Thumbnail)
     $content('img').each((_, el) => {
         const $img = $content(el);
-        const $parentP = $img.closest('p');
+        
+        // Cố gắng tìm block chứa ảnh trong mảng allBlocks
+        const imgBlockIndex = allBlocks.findIndex(b => $content(b).has($img).length > 0 || b === el);
+        
+        const $blockContainer = $img.closest('p, figure, td, li');
 
-        // Tìm block container gần nhất (p hoặc div/figure nếu Google Docs bọc ảnh trong div)
-        const $blockContainer = $parentP.length > 0 
-            ? $parentP 
-            : $img.closest('div, figure, td');
-
-        if ($blockContainer.length === 0) return;
-
-        const parentTextAfterImg = $blockContainer.clone()
+        // Lấy text cùng block với ảnh (nếu có)
+        const parentTextAfterImg = $blockContainer.length > 0 && !$blockContainer.is('img') ? $blockContainer.clone()
             .find('img').remove().end()
-            .text().trim();
+            .text().trim() : '';
 
         if (parentTextAfterImg !== '') {
             // CASE 1: Caption nằm CÙNG block với ảnh
-            // Câu ngắn (<200 ký tự) và cho phép kết thúc bằng dấu chấm
             const isShort = parentTextAfterImg.length < 200;
             const hasNoEndPunct = !/[!:,;]$/.test(parentTextAfterImg.trim());
             
@@ -302,41 +302,47 @@ export const parseGoogleDoc = async (docUrl: string) => {
             
             if (isShort && hasNoEndPunct) {
                 $img.attr('data-temp-caption', parentTextAfterImg);
+                
+                // Chỉ xóa nội dung text trong block container KHI ĐÓ THỰC SỰ LÀ CHÚ THÍCH
+                $blockContainer.contents().each((_, node) => {
+                    if ($content(node)[0] !== $imgDirectChildOfBlock[0]) {
+                        $content(node).remove();
+                    }
+                });
             }
-            $blockContainer.contents().each((_, node) => {
-                if ($content(node)[0] !== $imgDirectChildOfBlock[0]) {
-                    $content(node).remove();
-                }
-            });
         } else {
-            // CASE 2: Block chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp
-            let $currNode = $blockContainer.next();
+            // CASE 2: Block chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp trong danh sách phẳng
             let $captionNode = null;
             let captionText = '';
             let emptyNodesToRemove: any[] = [];
             
-            for (let i = 0; i < 5; i++) {
-                if ($currNode.length === 0) break;
-                
-                const nodeTag = ($currNode[0] as any).tagName?.toLowerCase() || '';
-                if (/^h[1-6]$/.test(nodeTag) || $currNode.find('img').length > 0) {
-                    break;
-                }
-
-                const text = $currNode.text().trim();
-                if (text.length === 0) {
-                    emptyNodesToRemove.push($currNode);
-                    $currNode = $currNode.next();
-                } else {
-                    // Câu ngắn (<200 ký tự) và cho phép kết thúc bằng dấu chấm
-                    const isShort = text.length < 200;
-                    const hasNoEndPunct = !/[!:,;]$/.test(text.trim());
+            if (imgBlockIndex !== -1) {
+                // Duyệt tối đa 5 block tiếp theo
+                for (let i = 1; i <= 5; i++) {
+                    const nextBlock = allBlocks[imgBlockIndex + i];
+                    if (!nextBlock) break;
                     
-                    if (isShort && hasNoEndPunct) {
-                        $captionNode = $currNode;
-                        captionText = text;
+                    const $currNode = $content(nextBlock);
+                    const nodeTag = (nextBlock as any).tagName?.toLowerCase() || '';
+                    
+                    if (/^h[1-6]$/.test(nodeTag) || $currNode.find('img').length > 0) {
+                        break; // Gặp heading hoặc ảnh khác thì dừng
                     }
-                    break;
+
+                    const text = $currNode.text().trim();
+                    if (text.length === 0) {
+                        emptyNodesToRemove.push($currNode);
+                    } else {
+                        // Câu ngắn (<200 ký tự) và cho phép kết thúc bằng dấu chấm
+                        const isShort = text.length < 200;
+                        const hasNoEndPunct = !/[!:,;]$/.test(text.trim());
+                        
+                        if (isShort && hasNoEndPunct) {
+                            $captionNode = $currNode;
+                            captionText = text;
+                        }
+                        break;
+                    }
                 }
             }
 

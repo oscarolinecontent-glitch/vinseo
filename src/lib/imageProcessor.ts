@@ -8,7 +8,58 @@ interface SiteConfig {
   wp_password?: string;
   wp_login_path?: string;
   image_format?: string; // 'webp', 'jpeg', 'png'
+  image_width?: number;  // Chiều rộng mục tiêu (vd: 800)
+  image_height?: number; // Chiều cao mục tiêu (vd: 450)
   authHeaders?: any; // Dùng để bypass WAF nếu có Session Cookie
+}
+
+/**
+ * Helper: Tạo sharp pipeline với resize (nếu có) + convert format
+ * Trả về { buffer, contentType, ext, width, height }
+ */
+async function buildSharpOutput(inputBuffer: Buffer, siteConfig: SiteConfig): Promise<{
+  buffer: Buffer; contentType: string; ext: string; width: number; height: number;
+}> {
+  let pipeline = sharp(inputBuffer);
+
+  // Resize nếu user có cấu hình kích thước
+  const tw = siteConfig.image_width;
+  const th = siteConfig.image_height;
+  if (tw && th && tw > 0 && th > 0) {
+    pipeline = pipeline.resize(tw, th, { fit: 'cover', position: 'center' });
+  } else if (tw && tw > 0) {
+    pipeline = pipeline.resize(tw, undefined, { fit: 'inside', withoutEnlargement: true });
+  }
+
+  // Convert format
+  const targetFormat = siteConfig.image_format || 'webp';
+  let contentType: string;
+  let ext: string;
+
+  if (targetFormat === 'jpeg' || targetFormat === 'jpg') {
+    pipeline = pipeline.jpeg({ quality: 80 });
+    contentType = 'image/jpeg';
+    ext = 'jpg';
+  } else if (targetFormat === 'png') {
+    pipeline = pipeline.png({ quality: 80 });
+    contentType = 'image/png';
+    ext = 'png';
+  } else {
+    pipeline = pipeline.webp({ quality: 80 });
+    contentType = 'image/webp';
+    ext = 'webp';
+  }
+
+  const finalBuffer = await pipeline.toBuffer();
+  const meta = await sharp(finalBuffer).metadata();
+
+  return {
+    buffer: finalBuffer,
+    contentType,
+    ext,
+    width: meta.width || 800,
+    height: meta.height || 450
+  };
 }
 
 function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: any = {}) {
@@ -38,7 +89,7 @@ export async function processAndUploadImages(
   const $ = cheerio.load(htmlContent, { xmlMode: false });
   const images = $('img').toArray();
   
-  // Xử lý tất cả ảnh song song theo từng batch 3 ảnh để tăng tốc độ
+  // Xử lý ảnh song song theo batch (ví dụ: 3 ảnh/lần) để tối ưu thời gian. Ảnh nào lỗi sẽ tự động retry độc lập.
   const BATCH_SIZE = 3;
   const results: Array<{ index: number; classicBlock: string; imgNode: any }> = [];
 
@@ -67,40 +118,39 @@ export async function processAndUploadImages(
           buffer = Buffer.from(await res.arrayBuffer());
         }
 
-        let finalBuffer = buffer;
-        let contentType = 'image/webp';
-        let ext = 'webp';
-        const targetFormat = siteConfig.image_format || 'webp';
-        
-        if (targetFormat === 'jpeg' || targetFormat === 'jpg') {
-          finalBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
-          contentType = 'image/jpeg';
-          ext = 'jpg';
-        } else if (targetFormat === 'png') {
-          finalBuffer = await sharp(buffer).png({ quality: 80 }).toBuffer();
-          contentType = 'image/png';
-          ext = 'png';
-        } else {
-          finalBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
-          contentType = 'image/webp';
-          ext = 'webp';
-        }
-
-        const { width, height } = await sharp(finalBuffer).metadata();
+        // Resize (nếu có cấu hình) + Convert format bằng helper chung
+        const sharpResult = await buildSharpOutput(buffer, siteConfig);
+        const finalBuffer = sharpResult.buffer;
+        const contentType = sharpResult.contentType;
+        const ext = sharpResult.ext;
+        const width = sharpResult.width;
+        const height = sharpResult.height;
 
         const safeSlug = keywordSlug.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, "");
         const filename = `${safeSlug}-${i + 1}.${ext}`;
-        const uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
-          method: 'POST',
-          headers: getApiHeaders(siteConfig, {
-            'Content-Type': contentType,
-            'Content-Disposition': `attachment; filename="${filename}"`
-          }),
-          body: finalBuffer as any
-        });
+        
+        // Thử upload lên WP tối đa 3 lần nếu server bị lỗi 502/504
+        let uploadRes;
+        let uploadRetries = 3;
+        while (uploadRetries > 0) {
+           uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
+             method: 'POST',
+             headers: getApiHeaders(siteConfig, {
+               'Content-Type': contentType,
+               'Content-Disposition': `attachment; filename="${filename}"`
+             }),
+             body: finalBuffer as any
+           });
 
-        if (!uploadRes.ok) {
-           console.error('WP Upload failed', await uploadRes.text());
+           if (uploadRes.ok) break;
+           uploadRetries--;
+           if (uploadRetries > 0) {
+              await new Promise(r => setTimeout(r, 2000)); // Đợi 2s rồi thử lại
+           }
+        }
+
+        if (!uploadRes || !uploadRes.ok) {
+           console.error('WP Upload failed', uploadRes ? await uploadRes.text() : 'No response');
            return null;
         }
 
@@ -181,25 +231,11 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
         buffer = Buffer.from(await res.arrayBuffer());
       }
 
-      let finalBuffer = buffer;
-      let contentType = 'image/webp';
-      const targetFormat = siteConfig.image_format || 'webp';
-      
-      // Chuyển đổi định dạng theo cấu hình của người dùng (webp, jpeg, png)
-      if (targetFormat === 'jpeg' || targetFormat === 'jpg') {
-        finalBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
-        contentType = 'image/jpeg';
-        filename = filename.replace(/\.(png|jpg|jpeg|webp)$/i, '.jpg');
-      } else if (targetFormat === 'png') {
-        finalBuffer = await sharp(buffer).png({ quality: 80 }).toBuffer();
-        contentType = 'image/png';
-        filename = filename.replace(/\.(png|jpg|jpeg|webp)$/i, '.png');
-      } else {
-        // Mặc định là webp
-        finalBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
-        contentType = 'image/webp';
-        filename = filename.replace(/\.(png|jpg|jpeg|webp)$/i, '.webp');
-      }
+      // Resize (nếu có cấu hình) + Convert format bằng helper chung
+      const sharpResult = await buildSharpOutput(buffer, siteConfig);
+      const finalBuffer = sharpResult.buffer;
+      const contentType = sharpResult.contentType;
+      filename = filename.replace(/\.(png|jpg|jpeg|webp)$/i, `.${sharpResult.ext}`);
 
       const safeFilename = filename.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, "");
       const uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
