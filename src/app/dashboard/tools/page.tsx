@@ -21,6 +21,14 @@ export default function ToolsPage() {
       status: 'Sẵn sàng'
     },
     {
+      id: 'drive-downloader',
+      name: 'Công Cụ Đồng Bộ Ảnh (Drive & WP)',
+      desc: 'Tải hàng loạt ảnh từ link Google Drive về thành 1 file Zip, hoặc giải nén file Zip đẩy tự động lên thư viện WordPress.',
+      icon: <Puzzle className="text-blue-400" size={24} />,
+      link: '/dashboard/tools/drive-downloader',
+      status: 'Sẵn sàng'
+    },
+    {
       id: 'image-optimizer',
       name: 'Tối ưu ảnh Webp (Đang phát triển)',
       desc: 'Tự động tải ảnh từ Google Docs, nén sang WebP và Upload lên Media Library WordPress.',

@@ -50,6 +50,26 @@ export default function DocsPage() {
           </div>
         </section>
 
+        {/* Section 3 */}
+        <section className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all text-sm font-bold">3</span>
+            Cách Lấy Google Drive API Key
+          </h2>
+          <div className="text-gray-600 dark:text-gray-400 text-sm space-y-3 leading-relaxed">
+            <p>API Key giúp công cụ tự động quét và tải ảnh từ các thư mục Google Drive của bạn (dành cho tính năng gom file Zip).</p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>Truy cập <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-violet-500 hover:underline">Google Cloud Console</a> và đăng nhập bằng tài khoản Google.</li>
+              <li>Bấm vào menu chọn Project ở góc trên bên trái &gt; <strong>New Project</strong> để tạo một Project mới.</li>
+              <li>Mở thanh menu (3 gạch góc trái) &gt; chọn <strong>APIs & Services</strong> &gt; <strong>Library</strong>.</li>
+              <li>Gõ tìm kiếm <strong>Google Drive API</strong> &gt; bấm vào nó và chọn <strong>Enable</strong> (Bật).</li>
+              <li>Quay lại menu <strong>APIs & Services</strong> &gt; chọn <strong>Credentials</strong> (Thông tin xác thực).</li>
+              <li>Bấm <strong>+ CREATE CREDENTIALS</strong> (Tạo thông tin xác thực) ở phía trên &gt; Chọn <strong>API key</strong>.</li>
+              <li>Google sẽ tạo ra một chuỗi ký tự dài bắt đầu bằng <code className="bg-gray-800 px-1 py-0.5 rounded text-violet-400">AIzaSy...</code>. Hãy copy mã này và dán vào Tool nhé!</li>
+            </ul>
+          </div>
+        </section>
+
       </div>
     </div>
   );
