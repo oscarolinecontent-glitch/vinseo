@@ -35,6 +35,7 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 | `check/route.ts` | Kiểm tra kết nối WP (Basic Auth + Cookie fallback) |
 | `categories/route.ts` | Lấy danh sách categories từ WP |
 | `post/route.ts` | Đăng bài Post/Page/Category hàng loạt |
+| `update-post/route.ts` | Cập nhật content bài đã đăng (resolve ID từ URL, giữ nguyên slug) |
 | `resize-images/route.ts` | Resize ảnh trên bài đã đăng |
 
 ### Lib (`src/lib/`)
@@ -49,7 +50,7 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 ### Pages (`src/app/dashboard/`)
 | Page | Chức năng |
 |------|-----------|
-| `create-post/page.tsx` | UI đăng bài hàng loạt (config WP + nhập Excel/Sheets + danh sách GDocs) |
+| `create-post/page.tsx` | UI đăng bài hàng loạt (mode: Đăng mới / Cập nhật). Mode cập nhật nhận Link WP cũ + Link GDocs mới → update content giữ nguyên slug |
 | `tools/page.tsx` | Hub công cụ |
 | `tools/resize-images/page.tsx` | UI resize ảnh hàng loạt (nhập kích thước + danh sách URL bài) |
 | `projects/` | Quản lý dự án website |

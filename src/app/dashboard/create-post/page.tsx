@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Send, FileText, Settings, Key, Link as LinkIcon, CheckCircle2, AlertCircle, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Send, FileText, Settings, Key, Link as LinkIcon, CheckCircle2, AlertCircle, Plus, Trash2, RefreshCw, Edit3, PlusCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -20,14 +20,34 @@ type PostItem = {
   resultUrl?: string;
 };
 
+type UpdateItem = {
+  id: string;
+  wp_post_url: string;
+  gdoc_url: string;
+  keyword?: string;
+  meta_desc?: string;
+  resultStatus?: 'pending' | 'loading' | 'success' | 'error';
+  resultMessage?: string;
+  resultUrl?: string;
+  thumbnailUpdated?: boolean;
+  errorCode?: string;
+};
+
 export default function CreatePostPage() {
   const { user } = useAuth();
+  const [mode, setMode] = useState<'create' | 'update'>('create');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{success: boolean, message: string, user?: string} | null>(null);
   const [siteCategories, setSiteCategories] = useState<{id: number, name: string}[]>([]);
   const [excelText, setExcelText] = useState('');
-  
+
+  // State riêng cho mode Update
+  const [updateItems, setUpdateItems] = useState<UpdateItem[]>([
+    { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '', meta_desc: '' }
+  ]);
+  const [updateExcelText, setUpdateExcelText] = useState('');
+
   const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
@@ -165,6 +185,144 @@ export default function CreatePostPage() {
     }
   };
 
+  // ---- Handlers cho Update Mode ----
+  const updateUpdateItem = (id: string, field: keyof UpdateItem, value: any) => {
+    setUpdateItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  const addUpdateItem = () => {
+    setUpdateItems(prev => [...prev, { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '', meta_desc: '' }]);
+  };
+
+  const removeUpdateItem = (id: string) => {
+    setUpdateItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const clearAllUpdateItems = () => {
+    setUpdateItems([]);
+  };
+
+  const handleUpdateExcelImport = () => {
+    if (!updateExcelText.trim()) return;
+    const rows = updateExcelText.split('\n').filter(r => r.trim());
+    const newItems: UpdateItem[] = [];
+
+    rows.forEach((row, i) => {
+      const cols = row.split('\t').map(c => c.trim());
+      // Cột 1: Link WP, Cột 2: Link GDocs, Cột 3: Keyword, Cột 4: Meta Desc
+      const wpUrl = cols[0] || '';
+      const gdocUrl = cols[1] || '';
+      if (wpUrl && gdocUrl.includes('docs.google.com')) {
+        newItems.push({
+          id: Date.now().toString() + i,
+          wp_post_url: wpUrl,
+          gdoc_url: gdocUrl,
+          keyword: cols[2] || '',
+          meta_desc: cols[3] || '',
+        });
+      }
+    });
+
+    if (newItems.length > 0) {
+      const current = updateItems.filter(u => u.wp_post_url.trim() !== '' || u.gdoc_url.trim() !== '');
+      setUpdateItems([...current, ...newItems]);
+      setUpdateExcelText('');
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (!siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
+      alert('Vui lòng cấu hình kết nối WP ở Bước 1!');
+      return;
+    }
+
+    setLoading(true);
+
+    for (let i = 0; i < updateItems.length; i++) {
+      const item = updateItems[i];
+      if (!item.wp_post_url || !item.gdoc_url) continue;
+
+      updateUpdateItem(item.id, 'resultStatus', 'loading');
+
+      let attempt = 1;
+      let success = false;
+      const maxAttempts = 2;
+
+      while (attempt <= maxAttempts && !success) {
+        if (attempt === 2) {
+          updateUpdateItem(item.id, 'resultMessage', 'Lỗi lần 1, đang thử lại lần 2...');
+        }
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 150000);
+
+          const res = await fetch('/api/wp/update-post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              siteConfig,
+              postData: {
+                wp_post_url: item.wp_post_url,
+                gdoc_url: item.gdoc_url,
+                keyword: item.keyword,
+                meta_desc: item.meta_desc,
+                imageType: imageType,
+              },
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+          const data = await res.json();
+
+          if (data.success) {
+            setUpdateItems(prev => prev.map(u => u.id === item.id ? {
+              ...u,
+              resultStatus: 'success',
+              resultMessage: data.thumbnailUpdated === false
+                ? 'Không có thumbnail — vui lòng thêm thủ công'
+                : 'Đã cập nhật!',
+              resultUrl: data.url,
+              thumbnailUpdated: data.thumbnailUpdated !== false,
+            } : u));
+            success = true;
+          } else {
+            if (attempt === maxAttempts) {
+              setUpdateItems(prev => prev.map(u => u.id === item.id ? {
+                ...u,
+                resultStatus: 'error',
+                resultMessage: data.message,
+                errorCode: data.errorCode || '',
+              } : u));
+            }
+          }
+        } catch (err: any) {
+          if (attempt === maxAttempts) {
+            if (err.name === 'AbortError') {
+              setUpdateItems(prev => prev.map(u => u.id === item.id ? { ...u, resultStatus: 'error', resultMessage: 'Lỗi: Thời gian chờ quá lâu (Timeout).' } : u));
+            } else {
+              setUpdateItems(prev => prev.map(u => u.id === item.id ? { ...u, resultStatus: 'error', resultMessage: err.message } : u));
+            }
+          }
+        }
+
+        if (!success) {
+          attempt++;
+          if (attempt <= maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 3500));
+          }
+        }
+      }
+
+      if (i < updateItems.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 3500));
+      }
+    }
+
+    setLoading(false);
+  };
+
   const applyAllFormat = (val: string) => {
     if (!val) return;
     setPosts(prev => prev.map(p => ({ ...p, postType: val as 'post' | 'page' | 'category' })));
@@ -265,12 +423,43 @@ export default function CreatePostPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-8 pt-10">
-      <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
-          <FileText className="text-violet-400" />
-          Đăng Bài & Nội Dung Hàng Loạt
-        </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Cấu hình WordPress và nhập danh sách link Google Docs để parse & post tự động.</p>
+      <header className="mb-6 border-b border-gray-200 dark:border-gray-800 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
+              <FileText className="text-violet-400" />
+              {mode === 'create' ? 'Đăng Bài & Nội Dung Hàng Loạt' : 'Cập Nhật Nội Dung Bài Viết'}
+            </h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              {mode === 'create'
+                ? 'Cấu hình WordPress và nhập danh sách link Google Docs để parse & post tự động.'
+                : 'Nhập link bài đã đăng và link Google Docs mới để cập nhật nội dung mà giữ nguyên slug/URL.'}
+            </p>
+          </div>
+          {/* Mode Toggle */}
+          <div className="flex bg-gray-100 dark:bg-gray-800/80 p-1 rounded-lg gap-1 border border-gray-200 dark:border-gray-700 self-start">
+            <button
+              onClick={() => setMode('create')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                mode === 'create'
+                  ? 'bg-white dark:bg-violet-600 text-violet-600 dark:text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <PlusCircle size={15} /> Đăng mới
+            </button>
+            <button
+              onClick={() => setMode('update')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                mode === 'update'
+                  ? 'bg-white dark:bg-amber-500 text-amber-600 dark:text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <Edit3 size={15} /> Cập nhật
+            </button>
+          </div>
+        </div>
       </header>
 
       <div className="space-y-8">
@@ -331,16 +520,7 @@ export default function CreatePostPage() {
                 <option value="png">PNG (Giữ nguyên nền trong suốt)</option>
               </select>
             </div>
-            <div className="space-y-1 flex gap-3">
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Chiều rộng ảnh (px)</label>
-                <input type="number" name="image_width" value={siteConfig.image_width || ''} onChange={handleConfigChange as any} placeholder="VD: 800 (để trống = giữ nguyên)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
-              </div>
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Chiều cao ảnh (px)</label>
-                <input type="number" name="image_height" value={siteConfig.image_height || ''} onChange={handleConfigChange as any} placeholder="VD: 450 (để trống = giữ nguyên)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
-              </div>
-            </div>
+
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Mật khẩu đăng nhập WP</label>
               <input type="password" name="wp_password" value={siteConfig.wp_password || ''} onChange={handleConfigChange} placeholder="Mật khẩu tài khoản (để auto fill SEO)" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
@@ -352,8 +532,9 @@ export default function CreatePostPage() {
           </div>
         </div>
 
-        {/* Section 2: Google Docs & Content List */}
-        <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
+
+        {/* Section 2: Google Docs & Content List - chỉ hiện ở mode Đăng mới */}
+        {mode === 'create' && <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
           <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
             <div className="flex flex-col md:flex-row md:items-center gap-4">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -506,30 +687,190 @@ export default function CreatePostPage() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-
-
               </div>
             ))}
           </div>
-        </div>
+        </div>}
 
-        {/* Submit Button */}
-        <div className="flex justify-end pt-2">
-          <button 
-            onClick={handleBulkSubmit}
-            disabled={loading}
-            className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
-              loading 
-              ? 'bg-gray-600 text-slate-900 dark:text-white cursor-not-allowed' 
-              : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all'
-            }`}
-          >
-            {loading ? 'Hệ thống đang chạy...' : `Đăng Hàng Loạt (${posts.length} Mục)`}
-            {!loading && <Send size={18} />}
-          </button>
-        </div>
+        {/* Submit Button - Create Mode */}
+        {mode === 'create' && (
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleBulkSubmit}
+              disabled={loading}
+              className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
+                loading
+                  ? 'bg-gray-600 text-slate-900 dark:text-white cursor-not-allowed'
+                  : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all'
+              }`}
+            >
+              {loading ? 'Hệ thống đang chạy...' : `Đăng Hàng Loạt (${posts.length} Mục)`}
+              {!loading && <Send size={18} />}
+            </button>
+          </div>
+        )}
 
       </div>
+
+      {/* ===================== UPDATE MODE SECTION ===================== */}
+      {mode === 'update' && (
+        <div className="space-y-6 mt-2">
+
+          {/* Excel Import for Update */}
+          <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
+            <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Edit3 size={18} className="text-amber-400" />
+                2. Danh sách Bài cần Cập Nhật
+              </h2>
+              <div className="flex gap-2">
+                {/* Image type toggle */}
+                <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-lg flex gap-1 border border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => setImageType('key')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${imageType === 'key' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                  >
+                    Ảnh dạng key
+                  </button>
+                  <button
+                    onClick={() => setImageType('caption')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${imageType === 'caption' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                  >
+                    Ảnh dạng chú thích
+                  </button>
+                </div>
+                <button onClick={addUpdateItem} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
+                  <Plus size={14} /> Thêm dòng
+                </button>
+                <button onClick={clearAllUpdateItems} className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 text-xs font-semibold px-3 py-1.5 rounded border border-red-200 dark:border-red-800 transition">
+                  <Trash2 size={14} /> Xóa tất cả
+                </button>
+              </div>
+            </div>
+
+            {/* Excel Import */}
+            <div className="mb-6 p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+              <label className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-2 block">Nhập hàng loạt từ Excel / Google Sheets</label>
+              <p className="text-xs text-gray-500 mb-2">Copy các cột từ Excel và dán vào ô dưới đây. (Cột 1: Link WP bài cũ, Cột 2: Link Docs mới, Cột 3: Từ khóa, Cột 4: Meta Desc)</p>
+              <div className="flex gap-2">
+                <textarea
+                  value={updateExcelText}
+                  onChange={(e) => setUpdateExcelText(e.target.value)}
+                  placeholder="https://domain.com/bai-viet/&#9;https://docs.google.com/...&#9;từ khóa"
+                  className="flex-1 h-16 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 transition"
+                />
+                <button onClick={handleUpdateExcelImport} className="bg-amber-500 hover:bg-amber-400 text-white text-xs font-bold px-4 py-2 rounded-md transition-colors whitespace-nowrap">
+                  Nhập Data
+                </button>
+              </div>
+            </div>
+
+            {/* Table Header */}
+            <div className="hidden md:grid gap-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 pb-2 border-b border-gray-200 dark:border-gray-800 grid-cols-12">
+              <div className="col-span-4">Link WP (bài cũ)</div>
+              <div className="col-span-4">Link Google Docs (mới)</div>
+              <div className="col-span-2">Từ khóa</div>
+              <div className="col-span-1 text-center">Kết quả</div>
+              <div className="col-span-1 text-center">Xóa</div>
+            </div>
+
+            <div className="space-y-2 mt-2">
+              {updateItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
+                  <p className="text-gray-400 dark:text-gray-500 text-sm mb-3">Chưa có dòng nào. Thêm hoặc nhập từ Excel.</p>
+                </div>
+              ) : updateItems.map((item) => (
+                <div key={item.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center border rounded-md p-2 transition-colors ${
+                  item.resultStatus === 'error'
+                    ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+                    : item.resultStatus === 'success'
+                    ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800/50'
+                    : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-gray-800'
+                }`}>
+                  <div className="col-span-4">
+                    <input
+                      type="url"
+                      value={item.wp_post_url}
+                      onChange={(e) => updateUpdateItem(item.id, 'wp_post_url', e.target.value)}
+                      placeholder="https://domain.com/bai-viet/..."
+                      className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="col-span-4">
+                    <input
+                      type="url"
+                      value={item.gdoc_url}
+                      onChange={(e) => updateUpdateItem(item.id, 'gdoc_url', e.target.value)}
+                      placeholder="https://docs.google.com/..."
+                      className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <input
+                      type="text"
+                      value={item.keyword || ''}
+                      onChange={(e) => updateUpdateItem(item.id, 'keyword', e.target.value)}
+                      placeholder="Từ khóa..."
+                      className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="col-span-1 text-center">
+                    {item.resultStatus === 'success' ? (
+                      <span className="inline-flex items-center justify-center gap-1">
+                        {item.thumbnailUpdated === false && (
+                          <span
+                            title="Không có thumbnail — thêm Featured Image thủ công trong WP"
+                            className="cursor-help"
+                          >⚠️</span>
+                        )}
+                        {item.resultUrl && (
+                          <a href={item.resultUrl} target="_blank" rel="noreferrer" title="Xem bài viết" className="text-amber-500 hover:text-amber-400 transition">
+                            <LinkIcon size={14} />
+                          </a>
+                        )}
+                      </span>
+                    ) : item.resultStatus === 'error' ? (
+                      <span className="inline-flex flex-col items-center gap-0.5">
+                        <span title={item.resultMessage || 'Lỗi không xác định'} className="cursor-help">
+                          <AlertCircle size={16} className="text-red-500" />
+                        </span>
+                        {item.errorCode === 'URL_NOT_FOUND' && (
+                          <span className="text-[10px] text-orange-400 leading-tight">Kiểm tra lại URL</span>
+                        )}
+                      </span>
+                    ) : item.resultStatus === 'loading' ? (
+                      <RefreshCw size={12} className="animate-spin inline text-amber-500" />
+                    ) : (
+                      <span className="text-gray-400 text-xs">Chờ</span>
+                    )}
+                  </div>
+                  <div className="col-span-1 text-center flex justify-center">
+                    <button onClick={() => removeUpdateItem(item.id)} className="text-gray-400 hover:text-red-400 transition-colors p-1">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Submit Button - Update Mode */}
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleBulkUpdate}
+              disabled={loading}
+              className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
+                loading
+                  ? 'bg-gray-600 text-slate-900 dark:text-white cursor-not-allowed'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white hover:scale-[1.02] shadow-lg shadow-amber-500/30 transition-all'
+              }`}
+            >
+              {loading ? 'Đang cập nhật...' : `Cập Nhật Hàng Loạt (${updateItems.length} Mục)`}
+              {!loading && <Edit3 size={18} />}
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
