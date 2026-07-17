@@ -35,7 +35,7 @@ type UpdateItem = {
 
 export default function CreatePostPage() {
   const { user } = useAuth();
-  const [mode, setMode] = useState<'create' | 'update'>('create');
+  const [mode, setMode] = useState<'create' | 'update' | 'sync'>('create');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{success: boolean, message: string, user?: string} | null>(null);
@@ -323,6 +323,85 @@ export default function CreatePostPage() {
     setLoading(false);
   };
 
+  // ---- Handlers cho Sync ảnh Mode ----
+  type SyncItem = {
+    id: string; wp_post_url: string; gdoc_url: string; keyword?: string;
+    resultStatus?: 'pending' | 'loading' | 'success' | 'error';
+    resultMessage?: string; resultUrl?: string;
+    thumbnailUpdated?: boolean; imagesInjected?: number; errorCode?: string;
+  };
+  const [syncItems, setSyncItems] = React.useState<SyncItem[]>([
+    { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '' }
+  ]);
+  const [syncExcelText, setSyncExcelText] = React.useState('');
+
+  const updateSyncItem = (id: string, field: keyof SyncItem, value: any) =>
+    setSyncItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  const addSyncItem = () =>
+    setSyncItems(prev => [...prev, { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '' }]);
+  const removeSyncItem = (id: string) =>
+    setSyncItems(prev => prev.filter(item => item.id !== id));
+  const clearAllSyncItems = () => setSyncItems([]);
+  const handleSyncExcelImport = () => {
+    if (!syncExcelText.trim()) return;
+    const rows = syncExcelText.split('\n').filter(r => r.trim());
+    const newItems: SyncItem[] = [];
+    rows.forEach((row, i) => {
+      const cols = row.split('\t').map(c => c.trim());
+      const wpUrl = cols[0] || ''; const gdocUrl = cols[1] || ''; const keyword = cols[2] || '';
+      if (wpUrl && gdocUrl.includes('docs.google.com'))
+        newItems.push({ id: Date.now().toString() + i, wp_post_url: wpUrl, gdoc_url: gdocUrl, keyword });
+    });
+    if (newItems.length > 0) {
+      setSyncItems([...syncItems.filter(s => s.wp_post_url || s.gdoc_url), ...newItems]);
+      setSyncExcelText('');
+    }
+  };
+  const handleBulkSync = async () => {
+    if (!siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
+      alert('Vui lòng cấu hình kết nối WP ở Bước 1!'); return;
+    }
+    setLoading(true);
+    for (let i = 0; i < syncItems.length; i++) {
+      const item = syncItems[i];
+      if (!item.wp_post_url || !item.gdoc_url) continue;
+      updateSyncItem(item.id, 'resultStatus', 'loading');
+      let attempt = 1; let success = false; const maxAttempts = 2;
+      while (attempt <= maxAttempts && !success) {
+        try {
+          const controller = new AbortController();
+          const tid = setTimeout(() => controller.abort(), 150000);
+          const res = await fetch('/api/wp/sync-images', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteConfig, postData: { wp_post_url: item.wp_post_url, gdoc_url: item.gdoc_url, keyword: item.keyword, imageType } }),
+            signal: controller.signal,
+          });
+          clearTimeout(tid);
+          const data = await res.json();
+          if (data.success) {
+            setSyncItems(prev => prev.map(s => s.id === item.id ? {
+              ...s, resultStatus: 'success', resultUrl: data.url,
+              thumbnailUpdated: data.thumbnailUpdated !== false, imagesInjected: data.imagesInjected || 0,
+            } : s));
+            success = true;
+          } else if (attempt === maxAttempts) {
+            setSyncItems(prev => prev.map(s => s.id === item.id ? {
+              ...s, resultStatus: 'error', resultMessage: data.message, errorCode: data.errorCode || '',
+            } : s));
+          }
+        } catch (err: any) {
+          if (attempt === maxAttempts) setSyncItems(prev => prev.map(s => s.id === item.id ? {
+            ...s, resultStatus: 'error',
+            resultMessage: err.name === 'AbortError' ? 'Timeout' : err.message,
+          } : s));
+        }
+        if (!success) { attempt++; if (attempt <= maxAttempts) await new Promise(r => setTimeout(r, 3500)); }
+      }
+      if (i < syncItems.length - 1) await new Promise(r => setTimeout(r, 3500));
+    }
+    setLoading(false);
+  };
+
   const applyAllFormat = (val: string) => {
     if (!val) return;
     setPosts(prev => prev.map(p => ({ ...p, postType: val as 'post' | 'page' | 'category' })));
@@ -457,6 +536,16 @@ export default function CreatePostPage() {
               }`}
             >
               <Edit3 size={15} /> Cập nhật
+            </button>
+            <button
+              onClick={() => setMode('sync')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                mode === 'sync'
+                  ? 'bg-white dark:bg-teal-500 text-teal-600 dark:text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <RefreshCw size={15} /> Sync ảnh
             </button>
           </div>
         </div>
@@ -867,6 +956,122 @@ export default function CreatePostPage() {
             >
               {loading ? 'Đang cập nhật...' : `Cập Nhật Hàng Loạt (${updateItems.length} Mục)`}
               {!loading && <Edit3 size={18} />}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* ===== SECTION: SYNC ẢNH ===== */}
+      {mode === 'sync' && (
+        <div className="bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-xl p-6">
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <RefreshCw size={18} className="text-teal-400" />
+                2. Danh sách Bài cần Sync Ảnh
+              </h2>
+              <span className="text-[11px] bg-teal-500/10 text-teal-500 border border-teal-500/20 rounded px-2 py-0.5 font-medium">
+                Không đổi text · Chỉ cập nhật ảnh
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={addSyncItem} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-300 text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 transition">
+                <Plus size={14} /> Thêm dòng
+              </button>
+              <button onClick={clearAllSyncItems} className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 text-xs font-semibold px-3 py-1.5 rounded border border-red-200 dark:border-red-800 transition">
+                <Trash2 size={14} /> Xóa tất cả
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-6 p-4 bg-teal-500/5 border border-teal-500/20 rounded-lg">
+            <label className="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2 block">Nhập hàng loạt từ Excel / Google Sheets</label>
+            <p className="text-xs text-gray-500 mb-2">Copy 3 cột: Cột 1: Link WP, Cột 2: Link Docs, Cột 3: Từ khóa.</p>
+            <div className="flex gap-2">
+              <textarea value={syncExcelText} onChange={(e) => setSyncExcelText(e.target.value)}
+                placeholder={"https://domain.com/bai-viet/\thttps://docs.google.com/..."}
+                className="flex-1 h-16 bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-teal-500 transition" />
+              <button onClick={handleSyncExcelImport} className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-4 py-2 rounded-md transition-colors whitespace-nowrap">
+                Nhập Data
+              </button>
+            </div>
+          </div>
+
+          <div className="hidden md:grid gap-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 pb-2 border-b border-gray-200 dark:border-gray-800 grid-cols-12">
+            <div className="col-span-4">Link WP (bài cần sync ảnh)</div>
+            <div className="col-span-4">Link Google Docs (có ảnh)</div>
+            <div className="col-span-2">Từ khóa</div>
+            <div className="col-span-1 text-center">Kết quả</div>
+            <div className="col-span-1 text-center">Xóa</div>
+          </div>
+
+          <div className="space-y-2 mt-2">
+            {syncItems.length === 0 ? (
+              <div className="flex items-center justify-center py-12 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
+                <p className="text-gray-400 text-sm">Chưa có dòng nào. Thêm hoặc nhập từ Excel.</p>
+              </div>
+            ) : syncItems.map((item) => (
+              <div key={item.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center border rounded-md p-2 transition-colors ${
+                item.resultStatus === 'error' ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+                  : item.resultStatus === 'success' ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50'
+                  : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-gray-800'
+              }`}>
+                <div className="col-span-4">
+                  <input type="url" value={item.wp_post_url} onChange={(e) => updateSyncItem(item.id, 'wp_post_url', e.target.value)}
+                    placeholder="https://domain.com/bai-viet/..."
+                    className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-teal-500" />
+                </div>
+                <div className="col-span-4">
+                  <input type="url" value={item.gdoc_url} onChange={(e) => updateSyncItem(item.id, 'gdoc_url', e.target.value)}
+                    placeholder="https://docs.google.com/..."
+                    className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-teal-500" />
+                </div>
+                <div className="col-span-2">
+                  <input type="text" value={item.keyword || ''} onChange={(e) => updateSyncItem(item.id, 'keyword', e.target.value)}
+                    placeholder="Từ khóa..."
+                    className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-teal-500" />
+                </div>
+                <div className="col-span-1 text-center">
+                  {item.resultStatus === 'success' ? (
+                    <span className="inline-flex items-center justify-center gap-1">
+                      {item.thumbnailUpdated === false && <span title="Không có thumbnail — thêm thủ công" className="cursor-help">⚠️</span>}
+                      {item.resultUrl && (
+                        <a href={item.resultUrl} target="_blank" rel="noreferrer" title={`Xem bài (${item.imagesInjected ?? 0} ảnh đã sync)`} className="text-teal-500 hover:text-teal-400 transition">
+                          <LinkIcon size={14} />
+                        </a>
+                      )}
+                    </span>
+                  ) : item.resultStatus === 'error' ? (
+                    <span className="inline-flex flex-col items-center gap-0.5">
+                      <span title={item.resultMessage || 'Lỗi không xác định'} className="cursor-help">
+                        <AlertCircle size={16} className="text-red-500" />
+                      </span>
+                      {item.errorCode === 'URL_NOT_FOUND' && <span className="text-[10px] text-orange-400 leading-tight">Kiểm tra lại URL</span>}
+                      {item.errorCode === 'UPLOAD_FAILED' && <span className="text-[10px] text-orange-400 leading-tight">Ảnh lỗi — xem hover</span>}
+                    </span>
+                  ) : item.resultStatus === 'loading' ? (
+                    <RefreshCw size={12} className="animate-spin inline text-teal-500" />
+                  ) : (
+                    <span className="text-gray-400 text-xs">Chờ</span>
+                  )}
+                </div>
+                <div className="col-span-1 text-center flex justify-center">
+                  <button onClick={() => removeSyncItem(item.id)} className="text-gray-400 hover:text-red-400 transition-colors p-1">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end pt-4">
+            <button onClick={handleBulkSync} disabled={loading}
+              className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
+                loading ? 'bg-gray-600 text-white cursor-not-allowed'
+                  : 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-white hover:scale-[1.02] shadow-lg shadow-teal-500/30'
+              }`}
+            >
+              {loading ? 'Đang sync ảnh...' : `Sync Ảnh Hàng Loạt (${syncItems.length} Bài)`}
+              {!loading && <RefreshCw size={18} />}
             </button>
           </div>
         </div>

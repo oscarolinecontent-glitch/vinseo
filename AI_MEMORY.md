@@ -67,6 +67,7 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - WP Auth (`wpAuth.ts`) cache session 2 tiếng. Nếu user đổi mật khẩu WP, cache cũ sẽ tự hết hạn.
 - API routes có `maxDuration = 300` (5 phút) cho Vercel serverless functions.
 - Khi đăng bài, tạo post với nội dung tạm trước để chiếm slug, rồi mới xử lý ảnh và cập nhật lại.
+- **WP Image Captions:** Chú ý `parseGoogleDoc` đã tự động bóc tách text chú thích của ảnh và lưu vào thuộc tính `data-temp-caption`, đồng thời **xóa luôn node chứa chú thích đó** khỏi HTML. Khi xử lý chèn ảnh (ở `sync-images` hay `update-post`), PHẢI lấy chú thích từ `data-temp-caption` của thẻ `<img>`. Nếu tạo shortcode `[caption]...[/caption]` mà bị thiếu phần text chú thích, WordPress Editor sẽ tự động **xóa luôn thẻ `[caption]` đó** và chỉ giữ lại ảnh (dẫn đến lỗi mất căn giữa).
 
 ## 6. Lộ Trình Tiếp Theo (Next Steps)
 - Hoàn thiện giao diện quản lý tiến trình đăng bài (Dashboard UI thống kê).

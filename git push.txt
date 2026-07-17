@@ -1,3 +1,3 @@
 git add .
-git commit -m "update đăng bài dạng cập nhật" 
+git commit -m "update thêm chức năng sync ảnh" 
 git push

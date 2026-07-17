@@ -209,17 +209,22 @@ export async function POST(req: Request) {
     const thumbUrl = parseResult.thumb_url || '';
 
     // BƯỚC 3: Xử lý ảnh
-    // Lấy slug hiện tại của bài để đặt tên file ảnh tương ứng
+    // Lấy slug hiện tại của bài để đặt tên file ảnh tương ứng (nếu không có keyword)
     const urlObj = new URL(postData.wp_post_url);
     const pathParts = urlObj.pathname.replace(/\/$/, '').split('/').filter(Boolean);
     const currentSlug = pathParts.length > 0 ? pathParts[pathParts.length - 1] : `post-${postId}`;
     const rawSlugText = postData.keyword || finalTitle;
+    
+    // Ưu tiên dùng keyword làm slug cho ảnh (để SEO tốt hơn)
+    const imageSlug = postData.keyword 
+      ? postData.keyword.toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '-').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\-]/g, "") 
+      : currentSlug;
 
     let imageProcessResult;
     if (postData.imageType === 'caption') {
       imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
     } else {
-      imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, currentSlug, rawSlugText, siteConfig);
+      imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, imageSlug, rawSlugText, siteConfig);
     }
 
     // BƯỚC 4: Cập nhật bài viết qua WP REST API (POST lên /{id})
