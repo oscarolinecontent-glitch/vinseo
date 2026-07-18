@@ -6,6 +6,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
+import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
 export const maxDuration = 300;
@@ -206,6 +207,10 @@ export async function POST(req: Request) {
       if (!finalMetaDesc && parseResult.meta_desc) finalMetaDesc = parseResult.meta_desc;
       driveLink = parseResult.drive_link || "";
       finalContent = parseResult.content || "";
+      // Strip domain from internal links to make them relative if ticked
+      if (postData.makeLinksRelative) {
+        finalContent = makeInternalLinksRelative(finalContent, siteConfig.wp_url);
+      }
       thumbUrl = parseResult.thumb_url || "";
     } else {
       return NextResponse.json({ success: false, message: "Thiếu link Google Docs" }, { status: 400 });

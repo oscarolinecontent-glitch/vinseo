@@ -63,6 +63,7 @@ export default function CreatePostPage() {
   });
 
   const [imageType, setImageType] = useState<'key' | 'caption'>('key');
+  const [makeLinksRelative, setMakeLinksRelative] = useState(false);
 
   const [posts, setPosts] = useState<PostItem[]>([
     { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }
@@ -268,6 +269,7 @@ export default function CreatePostPage() {
                 keyword: item.keyword,
                 meta_desc: item.meta_desc,
                 imageType: imageType,
+                makeLinksRelative: makeLinksRelative,
               },
             }),
             signal: controller.signal,
@@ -373,7 +375,7 @@ export default function CreatePostPage() {
           const tid = setTimeout(() => controller.abort(), 150000);
           const res = await fetch('/api/wp/sync-images', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ siteConfig, postData: { wp_post_url: item.wp_post_url, gdoc_url: item.gdoc_url, keyword: item.keyword, imageType } }),
+            body: JSON.stringify({ siteConfig, postData: { wp_post_url: item.wp_post_url, gdoc_url: item.gdoc_url, keyword: item.keyword, imageType, makeLinksRelative } }),
             signal: controller.signal,
           });
           clearTimeout(tid);
@@ -453,7 +455,8 @@ export default function CreatePostPage() {
                 categoryId: parseInt(p.categoryId),
                 meta_desc: p.meta_desc,
                 keyword: p.keyword,
-                imageType: imageType
+                imageType: imageType,
+                makeLinksRelative: makeLinksRelative
               }
             }),
             signal: controller.signal
@@ -617,6 +620,11 @@ export default function CreatePostPage() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Đường dẫn đăng nhập</label>
               <input type="text" name="wp_login_path" value={siteConfig.wp_login_path || ''} onChange={handleConfigChange} placeholder="/wp-login.php" className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition" />
+            </div>
+            
+            <div className="space-y-1 md:col-span-2 flex items-center gap-2 mt-2">
+              <input type="checkbox" id="makeLinksRelative" checked={makeLinksRelative} onChange={(e) => setMakeLinksRelative(e.target.checked)} className="w-4 h-4 text-violet-600 bg-gray-100 border-gray-300 rounded focus:ring-violet-500 dark:focus:ring-violet-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600" />
+              <label htmlFor="makeLinksRelative" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"> Cắt tên miền ở các link nội bộ</label>
             </div>
           </div>
         </div>

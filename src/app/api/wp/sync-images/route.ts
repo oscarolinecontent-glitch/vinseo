@@ -5,6 +5,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
+import { makeInternalLinksRelative } from '@/lib/wpHelper';
 import * as cheerio from 'cheerio';
 
 export const maxDuration = 300;
@@ -303,7 +304,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: parseResult.message }, { status: 400 });
     }
 
-    const docsContent = parseResult.content || '';
+    let docsContent = parseResult.content || '';
+    if (postData.makeLinksRelative) {
+      docsContent = makeInternalLinksRelative(docsContent, siteConfig.wp_url);
+    }
     const thumbUrl = parseResult.thumb_url || '';
 
     if (!docsContent && !thumbUrl) {

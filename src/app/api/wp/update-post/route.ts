@@ -6,6 +6,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
+import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
 export const maxDuration = 300;
@@ -205,7 +206,10 @@ export async function POST(req: Request) {
 
     const finalTitle = parseResult.title || '';
     const finalMetaDesc = postData.meta_desc || parseResult.meta_desc || '';
-    const finalContent = parseResult.content || '';
+    let finalContent = parseResult.content || '';
+    if (postData.makeLinksRelative) {
+      finalContent = makeInternalLinksRelative(finalContent, siteConfig.wp_url);
+    }
     const thumbUrl = parseResult.thumb_url || '';
 
     // BƯỚC 3: Xử lý ảnh
