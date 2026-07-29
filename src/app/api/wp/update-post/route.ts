@@ -12,16 +12,16 @@ import { makeInternalLinksRelative } from '@/lib/wpHelper';
 export const maxDuration = 300;
 
 /**
- * Trích xuất Post ID từ URL bài viết WordPress.
- * Hỗ trợ 2 dạng:
+ * Trích xuất Post/Page/Category ID từ URL bài viết WordPress.
+ * Hỗ trợ 3 dạng:
  *  - /?p=12345 (query param)
- *  - Gọi WP REST API tìm qua slug (cần slug từ permalink)
+ *  - Gọi WP REST API tìm qua slug trong posts, pages, categories
  */
 async function resolvePostId(
   wpPostUrl: string,
   siteBase: string,
   headers: any
-): Promise<{ id: number; type: 'post' | 'page' } | null> {
+): Promise<{ id: number; type: 'post' | 'page' | 'category' } | null> {
   try {
     // Dạng 1: URL chứa ?p=ID hoặc ?page_id=ID
     const pMatch = wpPostUrl.match(/[?&]p=(\d+)/);
@@ -58,6 +58,17 @@ async function resolvePostId(
       }
     }
 
+    // Thử tìm trong categories
+    const catRes = await fetch(`${siteBase}/wp-json/wp/v2/categories?slug=${encodeURIComponent(slug)}&_fields=id`, {
+      headers,
+    });
+    if (catRes.ok) {
+      const cats = await catRes.json();
+      if (Array.isArray(cats) && cats.length > 0) {
+        return { id: cats[0].id, type: 'category' };
+      }
+    }
+
     return null;
   } catch (e) {
     console.error('resolvePostId error:', e);
@@ -66,7 +77,74 @@ async function resolvePostId(
 }
 
 /**
- * Cập nhật RankMath SEO meta qua Admin Session
+ * Cập nhật Category Description qua giao diện wp-admin để tránh bị REST API tự động xóa thẻ HTML.
+ * Trả về true nếu cập nhật thành công, false nếu thất bại.
+ */
+async function updateCategoryDescriptionViaAdmin(
+  categoryId: number,
+  title: string,
+  slug: string,
+  descriptionHtml: string,
+  siteConfig: any
+): Promise<boolean> {
+  const session = await getWpAdminSession(siteConfig);
+  if (!session) {
+    console.warn('Update Category HTML: Không lấy được session admin.');
+    return false;
+  }
+  
+  const base = siteConfig.wp_url.replace(/\/$/, '');
+  
+  try {
+    // 1. Fetch trang edit-tags.php để lấy form nonce
+    const editUrl = `${base}/wp-admin/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
+    const getRes = await fetch(editUrl, {
+      headers: {
+        'Cookie': session.cookieStr,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close'
+      }
+    });
+    const html = await getRes.text();
+    
+    // Tìm _wpnonce cho form edit tag
+    const nonceMatch = html.match(/<input type="hidden" id="_wpnonce" name="_wpnonce" value="([^"]+)"/);
+    if (!nonceMatch) {
+      console.warn('Update Category HTML: Không tìm thấy _wpnonce trên trang term.php.');
+      return false;
+    }
+    const formNonce = nonceMatch[1];
+    
+    // 2. Submit form lên edit-tags.php
+    const formData = new URLSearchParams();
+    formData.append('action', 'editedtag');
+    formData.append('tag_ID', categoryId.toString());
+    formData.append('taxonomy', 'category');
+    formData.append('_wpnonce', formNonce);
+    formData.append('name', title);
+    formData.append('slug', slug);
+    formData.append('description', descriptionHtml);
+    
+    const postRes = await fetch(`${base}/wp-admin/edit-tags.php`, {
+      method: 'POST',
+      headers: {
+        'Cookie': session.cookieStr,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Connection': 'close',
+        'Referer': editUrl
+      },
+      body: formData.toString()
+    });
+    
+    console.log(`Update Category HTML (${categoryId}) via Admin: Status ${postRes.status}`);
+    return postRes.status === 200 || postRes.status === 302;
+  } catch (e) {
+    console.error('Update Category HTML Failed:', e);
+    return false;
+  }
+}
+
+/**
+ * Cập nhật RankMath SEO meta qua Admin Session, fallback sang Basic Auth nếu session fail
  */
 async function updateRankMathViaAdminSession(
   objectId: number,
@@ -77,50 +155,69 @@ async function updateRankMathViaAdminSession(
   categoryId: string | number,
   siteConfig: any
 ) {
+  const base = siteConfig.wp_url.replace(/\/$/, '');
+  const rmBody = JSON.stringify({
+    objectID: objectId,
+    objectType: objectType === 'category' ? 'term' : 'post',
+    meta: {
+      rank_math_title: title,
+      rank_math_description: desc,
+      rank_math_focus_keyword: keyword,
+      rank_math_primary_category: categoryId ? parseInt(categoryId.toString(), 10) : 0,
+    },
+  });
+
   try {
+    // Cách 1: Dùng Admin Session (ưu tiên vì không bị hạn chế quyền)
     const session = await getWpAdminSession(siteConfig);
-    if (!session) {
-      console.warn('RankMath Update: Không lấy được session admin.');
+    if (session) {
+      const rmHeaders: any = {
+        'Content-Type': 'application/json',
+        'Cookie': session.cookieStr,
+        'X-WP-Nonce': session.nonce,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Connection': 'close',
+      };
+
+      const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+      const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
+      const loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
+      try {
+        const urlObj = new URL(loginUrl);
+        if (urlObj.username && urlObj.password) {
+          rmHeaders['Authorization'] = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
+        }
+      } catch (e) { }
+
+      const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
+        method: 'POST',
+        headers: rmHeaders,
+        body: rmBody,
+      });
+      const rmData = await rmRes.text();
+      console.log('RankMath Admin Session Update:', rmRes.status, rmData.slice(0, 200));
       return;
     }
 
-    const base = siteConfig.wp_url.replace(/\/$/, '');
-    const rmHeaders: any = {
+    // Cách 2: Fallback dùng Basic Auth (App Password)
+
+    const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
+    const basicHeaders: any = {
       'Content-Type': 'application/json',
-      'Cookie': session.cookieStr,
-      'X-WP-Nonce': session.nonce,
+      'Authorization': `Basic ${credentials}`,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Connection': 'close',
     };
 
-    const loginPath = siteConfig.wp_login_path || '/wp-login.php';
-    const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
-    const loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
-    try {
-      const urlObj = new URL(loginUrl);
-      if (urlObj.username && urlObj.password) {
-        rmHeaders['Authorization'] = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
-      }
-    } catch (e) { }
-
     const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
       method: 'POST',
-      headers: rmHeaders,
-      body: JSON.stringify({
-        objectID: objectId,
-        objectType: objectType === 'category' ? 'term' : 'post',
-        meta: {
-          rank_math_title: title,
-          rank_math_description: desc,
-          rank_math_focus_keyword: keyword,
-          rank_math_primary_category: categoryId ? parseInt(categoryId.toString(), 10) : 0,
-        },
-      }),
+      headers: basicHeaders,
+      body: rmBody,
     });
     const rmData = await rmRes.text();
-    console.log('RankMath Admin Session Update:', rmRes.status, rmData.slice(0, 200));
+    console.log('RankMath Basic Auth Update:', rmRes.status, rmData.slice(0, 200));
   } catch (e) {
-    console.error('RankMath Admin Session Update Failed:', e);
+    console.error('RankMath Update Failed:', e);
   }
 }
 
@@ -195,8 +292,6 @@ export async function POST(req: Request) {
     }
 
     const { id: postId, type: postType } = resolved;
-    const endpointStr = postType === 'page' ? 'pages' : 'posts';
-    const updateEndpoint = `${siteBase}/wp-json/wp/v2/${endpointStr}/${postId}`;
 
     // BƯỚC 2: Parse Google Doc
     const parseResult = await parseGoogleDoc(postData.gdoc_url);
@@ -212,18 +307,94 @@ export async function POST(req: Request) {
     }
     const thumbUrl = parseResult.thumb_url || '';
 
-    // BƯỚC 3: Xử lý ảnh
-    // Lấy slug hiện tại của bài để đặt tên file ảnh tương ứng (nếu không có keyword)
+    // Lấy slug hiện tại từ URL
     const urlObj = new URL(postData.wp_post_url);
     const pathParts = urlObj.pathname.replace(/\/$/, '').split('/').filter(Boolean);
     const currentSlug = pathParts.length > 0 ? pathParts[pathParts.length - 1] : `post-${postId}`;
     const rawSlugText = postData.keyword || finalTitle;
-    
+
     // Ưu tiên dùng keyword làm slug cho ảnh (để SEO tốt hơn)
     const imageSlug = postData.keyword 
       ? postData.keyword.toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '-').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\-]/g, "") 
       : currentSlug;
 
+    // ============ XỬ LÝ CATEGORY ============
+    if (postType === 'category') {
+      // BƯỚC 3: Xử lý ảnh cho category
+      let imageProcessResult;
+      if (postData.imageType === 'caption') {
+        imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
+      } else {
+        imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, imageSlug, rawSlugText, siteConfig);
+      }
+
+      // BƯỚC 4: Cập nhật Category Description
+      // Thử qua Admin Session trước (giữ nguyên HTML)
+      const adminSuccess = await updateCategoryDescriptionViaAdmin(postId, finalTitle || currentSlug, currentSlug, imageProcessResult.processedHtml, siteConfig);
+      
+      let updateMethod = 'admin';
+      if (!adminSuccess) {
+        // Fallback: Cập nhật qua REST API (HTML có thể bị strip tùy cấu hình WP)
+
+        const catUpdateEndpoint = `${siteBase}/wp-json/wp/v2/categories/${postId}`;
+        const catPayload: any = {
+          description: imageProcessResult.processedHtml,
+        };
+        if (finalTitle) {
+          catPayload.name = finalTitle;
+        }
+        
+        const catUpdateRes = await fetch(catUpdateEndpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(catPayload),
+        });
+        
+        if (!catUpdateRes.ok) {
+          const errText = await catUpdateRes.text();
+          let errorMessage = `HTTP Error ${catUpdateRes.status}`;
+          try {
+            const err = JSON.parse(errText);
+            errorMessage = err.message || errorMessage;
+          } catch (e) {
+            errorMessage = `Lỗi từ Server WP (Mã ${catUpdateRes.status})`;
+          }
+          return NextResponse.json({ success: false, message: `Lỗi cập nhật category: ${errorMessage}` }, { status: catUpdateRes.status });
+        }
+        
+
+        updateMethod = 'rest-api';
+      }
+
+      // BƯỚC 5: Cập nhật RankMath SEO meta
+      if (postData.keyword || finalMetaDesc) {
+        await updateRankMathViaAdminSession(
+          postId,
+          'category',
+          finalTitle,
+          finalMetaDesc,
+          postData.keyword || '',
+          '',
+          siteConfig
+        ).catch(e => console.error('RankMath update error:', e));
+      }
+
+      return NextResponse.json({
+        success: true,
+        url: postData.wp_post_url,
+        wp_id: postId,
+        thumbnailUpdated: false,
+        message: updateMethod === 'admin'
+          ? `Đã cập nhật category #${postId} thành công (Admin Session)`
+          : `Đã cập nhật category #${postId} qua REST API (lưu ý: một số thẻ HTML có thể bị WordPress tự xóa)`,
+      });
+    }
+
+    // ============ XỬ LÝ POST / PAGE ============
+    const endpointStr = postType === 'page' ? 'pages' : 'posts';
+    const updateEndpoint = `${siteBase}/wp-json/wp/v2/${endpointStr}/${postId}`;
+
+    // BƯỚC 3: Xử lý ảnh
     let imageProcessResult;
     if (postData.imageType === 'caption') {
       imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);

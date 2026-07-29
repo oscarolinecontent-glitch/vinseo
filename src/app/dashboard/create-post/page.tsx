@@ -282,9 +282,9 @@ export default function CreatePostPage() {
             setUpdateItems(prev => prev.map(u => u.id === item.id ? {
               ...u,
               resultStatus: 'success',
-              resultMessage: data.thumbnailUpdated === false
+              resultMessage: data.message || (data.thumbnailUpdated === false
                 ? 'Không có thumbnail — vui lòng thêm thủ công'
-                : 'Đã cập nhật!',
+                : 'Đã cập nhật!'),
               resultUrl: data.url,
               thumbnailUpdated: data.thumbnailUpdated !== false,
             } : u));
