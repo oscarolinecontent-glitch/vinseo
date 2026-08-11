@@ -103,7 +103,7 @@ export async function processAndUploadImages(
       if (!src) return null;
 
       try {
-        let buffer: Buffer;
+        let buffer!: Buffer;
         
         if (src.startsWith('data:image')) {
           const base64Data = src.split(',')[1];
@@ -113,9 +113,24 @@ export async function processAndUploadImages(
           if (highResUrl.includes('googleusercontent.com') && highResUrl.includes('=s')) {
               highResUrl = highResUrl.replace(/=s\d+/, '=s0');
           }
-          const res = await fetch(highResUrl);
-          if (!res.ok) throw new Error('Failed to fetch image from Google');
-          buffer = Buffer.from(await res.arrayBuffer());
+          // Retry tối đa 3 lần vì Google URLs hay lỗi tạm (rate limit, timeout)
+          let fetchOk = false;
+          let lastErr: any;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              const res = await fetch(highResUrl);
+              if (res.ok) {
+                buffer = Buffer.from(await res.arrayBuffer());
+                fetchOk = true;
+                break;
+              }
+              lastErr = new Error(`Google image fetch HTTP ${res.status}`);
+            } catch (e) {
+              lastErr = e;
+            }
+            if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt)); // backoff 1s, 2s
+          }
+          if (!fetchOk) throw lastErr || new Error('Failed to fetch image from Google after retries');
         }
 
         // Resize (nếu có cấu hình) + Convert format bằng helper chung
@@ -191,8 +206,24 @@ export async function processAndUploadImages(
     }));
 
     // Gán kết quả vào HTML theo đúng thứ tự
-    for (const result of batchResults) {
-      if (!result) continue;
+    for (let bIdx = 0; bIdx < batchResults.length; bIdx++) {
+      const result = batchResults[bIdx];
+      const imgEl = batch[bIdx];
+      const $imgEl = $(imgEl);
+
+      if (!result) {
+        // Ảnh fetch/upload lỗi → xóa thẻ <img> gốc (URL Google đã expired)
+        // để tránh hiển thị icon ảnh lỗi trên WordPress
+        const parentP = $imgEl.closest('p');
+        if (parentP.length > 0 && parentP.text().trim() === '' && parentP.find('img').length <= 1) {
+          parentP.remove(); // Xóa luôn thẻ <p> bọc ngoài nếu chỉ chứa ảnh lỗi
+        } else {
+          $imgEl.remove();
+        }
+        console.warn(`Đã xóa thẻ <img> lỗi #${batchStart + bIdx + 1} khỏi HTML output.`);
+        continue;
+      }
+
       const { classicBlock, imgNode } = result;
       const parentP = imgNode.closest('p');
       if (parentP.length > 0 && parentP.text().trim() === '') {
@@ -217,7 +248,7 @@ export async function processAndUploadImages(
 // Hàm phụ trợ tải ảnh lên WP
 async function uploadImageToWp(src: string, filename: string, seoText: string, siteConfig: SiteConfig): Promise<number | null> {
     try {
-      let buffer: Buffer;
+      let buffer!: Buffer;
       if (src.startsWith('data:image')) {
         const base64Data = src.split(',')[1];
         buffer = Buffer.from(base64Data, 'base64');
@@ -226,9 +257,19 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
         if (highResUrl.includes('googleusercontent.com') && highResUrl.includes('=s')) {
             highResUrl = highResUrl.replace(/=s\d+/, '=s0');
         }
-        const res = await fetch(highResUrl);
-        if (!res.ok) return null;
-        buffer = Buffer.from(await res.arrayBuffer());
+        let fetchOk = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const res = await fetch(highResUrl);
+            if (res.ok) {
+              buffer = Buffer.from(await res.arrayBuffer());
+              fetchOk = true;
+              break;
+            }
+          } catch (e) { /* retry */ }
+          if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+        if (!fetchOk) return null;
       }
 
       // Resize (nếu có cấu hình) + Convert format bằng helper chung
@@ -258,7 +299,6 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
       });
 
       return mediaData.id;
-      return mediaData.id;
     } catch (e) {
       return null;
     }
@@ -271,6 +311,9 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
 function convertToSlug(str: string) {
   if (!str) return "";
   str = String(str).toLowerCase().trim();
+  // Normalize tất cả dạng whitespace (non-breaking space, zero-width space, thin space...) thành regular space
+  // Google Docs hay chèn U+00A0 (non-breaking space) giữa các từ
+  str = str.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]+/g, ' ');
   str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
   str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
   str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
@@ -318,22 +361,26 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
     }
   }
 
-  // Bước 2: Tìm mờ bằng 5 từ đầu
+  // Bước 2: Tìm mờ bằng search query
+  // Dùng spaces thay vì hyphens vì WP REST API search tìm trong title (có spaces)
   let wordsArray = cleanName.split("-");
   let shortName = wordsArray.length > 5 ? wordsArray.slice(0, 5).join("-") : cleanName;
+  const searchQuery = shortName.replace(/-/g, ' '); // WP search cần spaces
   
-  const urlSearch = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/media?search=${encodeURIComponent(shortName)}`;
+  const urlSearch = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/media?search=${encodeURIComponent(searchQuery)}`;
   const dataSearch = await fetchWithRetry(urlSearch);
   
   if (dataSearch && dataSearch.length > 0) {
     let availableMedia = dataSearch.filter((d: any) => !globalUsedMediaIds.includes(d.id));
     if (availableMedia.length > 0) {
+      // Ưu tiên ảnh có source_url chứa slug tìm kiếm
       for(let d of availableMedia) {
         if(d.source_url && d.source_url.includes(shortName)) {
           globalUsedMediaIds.push(d.id);
           return { id: d.id, url: d.source_url, w: d.media_details?.width, h: d.media_details?.height };
         }
       }
+      // Fallback: lấy ảnh đầu tiên available
       globalUsedMediaIds.push(availableMedia[0].id);
       return { id: availableMedia[0].id, url: availableMedia[0].source_url, w: availableMedia[0].media_details?.width, h: availableMedia[0].media_details?.height };
     }
@@ -351,9 +398,26 @@ export async function processImagesByCaption(
   const globalUsedMediaIds: number[] = [];
   
   // 1. Tìm Thumbnail dựa trên H1 (Title)
+  // Thử nhiều cấp từ slug đầy đủ → rút gọn dần (5,4,3,2 từ đầu)
+  // vì user thường đặt tên ảnh thumbnail NGẮN hơn title
   const h1Slug = convertToSlug(title);
-  const thumbData = await getMediaDataByFilename(h1Slug, siteConfig, globalUsedMediaIds);
+  let thumbData: any = null;
   let thumbnailId: number | null = null;
+
+  const slugWords = h1Slug.split('-');
+  // Tạo danh sách các slug cần thử: full → 5 → 4 → 3 → 2 từ (bỏ trùng)
+  const slugsToTry: string[] = [h1Slug];
+  for (const len of [5, 4, 3, 2]) {
+    if (slugWords.length > len) {
+      const shorter = slugWords.slice(0, len).join('-');
+      if (!slugsToTry.includes(shorter)) slugsToTry.push(shorter);
+    }
+  }
+
+  for (const trySlug of slugsToTry) {
+    thumbData = await getMediaDataByFilename(trySlug, siteConfig, globalUsedMediaIds);
+    if (thumbData) break;
+  }
   
   if (thumbData) {
       thumbnailId = thumbData.id;
@@ -363,6 +427,8 @@ export async function processImagesByCaption(
         headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ alt_text: title, caption: title, description: title })
       }).catch(() => {});
+  } else {
+    console.warn(`processImagesByCaption: Không tìm thấy thumbnail trong WP Media (slug: "${h1Slug}"). Bỏ qua — không chèn ảnh giả.`);
   }
 
   // 2. Load nội dung với Cheerio và rà soát chú thích
@@ -416,11 +482,8 @@ export async function processImagesByCaption(
                   $el.html(classicBlock);
                   $el.attr('style', 'text-align: center;');
               } else {
-                  // Nếu không tìm thấy, tạo một thẻ img mẫu
-                  const generatedImageUrl = `/wp-content/uploads/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${captionSlug}.webp`;
-                  const classicBlock = `[caption align="aligncenter"]<img src="${generatedImageUrl}" alt="${text}" class="size-full" /> ${text}[/caption]`;
-                  $el.html(classicBlock);
-                  $el.attr('style', 'text-align: center;');
+                  // Không tìm thấy ảnh trong WP Media → giữ nguyên text chú thích, không chèn ảnh giả
+                  console.warn(`processImagesByCaption: Không tìm thấy ảnh cho chú thích "${text}" (slug: "${captionSlug}"). Bỏ qua.`);
               }
               
               lastHeadingText = ""; // Reset
@@ -430,11 +493,8 @@ export async function processImagesByCaption(
 
   let finalHtml = $('body').html() || $.html();
 
-  // Bơm thumbnail lên đầu nếu không tìm thấy
-  if (!thumbnailId) {
-      const generatedThumbUrl = `/wp-content/uploads/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${h1Slug}.webp`;
-      finalHtml = `<p style="text-align: center;"><img src="${generatedThumbUrl}" alt="${title}" class="size-full" /></p>\n` + finalHtml;
-  }
+  // KHÔNG bơm ảnh thumbnail giả lên đầu bài nếu không tìm thấy
+  // (Trước đây code chèn URL đoán mò `/wp-content/uploads/...` gây ảnh lỗi)
 
   return { 
     processedHtml: finalHtml, 

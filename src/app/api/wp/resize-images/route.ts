@@ -42,7 +42,6 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
     slug = slug.replace(/\.(html?|php)$/i, '');
     
     if (!slug) {
-      console.log('[Resize] Không parse được slug từ URL:', postUrl);
       return null;
     }
 
@@ -57,7 +56,6 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
       }
       return null;
     }
-    console.log('[Resize] Tìm bài viết với slug:', slug);
 
     const base = siteConfig.wp_url.replace(/\/$/, '');
     
@@ -68,51 +66,40 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
     ];
 
     for (const endpoint of endpoints) {
-      console.log('[Resize] Gọi API:', endpoint.url);
-      
       const res = await fetch(endpoint.url, {
         headers: getApiHeaders(siteConfig)
       });
       
       if (res.ok) {
         const data = await res.json();
-        console.log('[Resize] Kết quả:', endpoint, '→', data.length, 'bài');
         if (data.length > 0) {
           return { id: data[0].id, type: endpoint.type };
         }
-      } else {
-        console.log('[Resize] API lỗi:', endpoint, res.status, await res.text().catch(() => ''));
-      }
+      } else { await res.text().catch(() => ''); }
     }
 
-    // Fallback 1: Tìm bằng search keyword
-    console.log('[Resize] Slug search thất bại, thử fallback search...');
     const searchKeyword = slug.replace(/-/g, ' ');
     const fallbackRes = await fetch(`${base}/wp-json/wp/v2/posts?search=${encodeURIComponent(searchKeyword)}&per_page=10&_fields=id,slug,type,link`, {
       headers: getApiHeaders(siteConfig)
     });
     if (fallbackRes.ok) {
       const fallbackData = await fallbackRes.json();
-      console.log('[Resize] Fallback search kết quả:', fallbackData.length, 'bài:', fallbackData.map((p: any) => p.slug).join(', '));
-      
+
       // Exact match trước
       const exactMatch = fallbackData.find((p: any) => p.slug === slug);
       if (exactMatch) {
-        console.log('[Resize] Exact match:', exactMatch.id, exactMatch.slug);
         return { id: exactMatch.id, type: 'post' };
       }
       
       // Link chứa slug
       const linkMatch = fallbackData.find((p: any) => p.link?.includes(slug));
       if (linkMatch) {
-        console.log('[Resize] Link match:', linkMatch.id, linkMatch.slug);
         return { id: linkMatch.id, type: 'post' };
       }
 
       // Slug bắt đầu bằng input slug (trường hợp user nhập URL rút gọn)
       const partialMatch = fallbackData.find((p: any) => p.slug?.startsWith(slug));
       if (partialMatch) {
-        console.log('[Resize] Partial match:', partialMatch.id, partialMatch.slug);
         return { id: partialMatch.id, type: 'post' };
       }
     }
@@ -124,12 +111,10 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
     if (catFallbackRes.ok) {
       const catData = await catFallbackRes.json();
       if (catData.length > 0) {
-        console.log('[Resize] Tìm thấy category:', catData[0].id, slug);
         return { id: catData[0].id, type: 'category' };
       }
     }
 
-    console.log('[Resize] Không tìm thấy bài viết cho slug:', slug);
     return null;
   } catch (e: any) {
     console.error('[Resize] Lỗi getPostIdFromUrl:', e.message);
@@ -221,7 +206,6 @@ export async function POST(req: Request) {
         const mediaIdMatches = content.match(/wp-image-(\d+)/g) || [];
         const uniqueMediaIds: number[] = Array.from(new Set(mediaIdMatches.map((m: string) => parseInt(m.replace('wp-image-', '')))));
         
-        console.log(`[Resize] Content: ${uniqueMediaIds.join(', ')} | Thumb: ${featuredMediaId}`);
 
         if (uniqueMediaIds.length === 0) {
           if (content.includes('<img')) {

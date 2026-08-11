@@ -6,6 +6,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
+import { getWpAdminPath } from '@/lib/wpAuth';
 import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
@@ -90,10 +91,13 @@ async function updateCategoryDescriptionViaAdmin(
   }
   
   const base = siteConfig.wp_url.replace(/\/$/, '');
+  const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+  const normalizedLoginPath = loginPath.startsWith('/') ? loginPath : `/${loginPath}`;
+  const adminBase = getWpAdminPath(normalizedLoginPath);
   
   try {
     // 1. Fetch trang edit-tags.php để lấy form nonce
-    const editUrl = `${base}/wp-admin/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
+    const editUrl = `${base}${adminBase}/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
     const getRes = await fetch(editUrl, {
       headers: {
         'Cookie': session.cookieStr,
@@ -120,7 +124,7 @@ async function updateCategoryDescriptionViaAdmin(
     formData.append('slug', slug);
     formData.append('description', descriptionHtml);
     
-    const postRes = await fetch(`${base}/wp-admin/edit-tags.php`, {
+    const postRes = await fetch(`${base}${adminBase}/edit-tags.php`, {
       method: 'POST',
       headers: {
         'Cookie': session.cookieStr,
@@ -247,7 +251,7 @@ export async function POST(req: Request) {
         // Xử lý ảnh cho danh mục
         let imageProcessResult;
         if (postData.imageType === 'caption') {
-          imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
+          imageProcessResult = await processImagesByCaption(finalContent, postData.keyword || finalTitle, siteConfig);
         } else {
           imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, catSlug, postData.keyword || finalTitle, siteConfig);
         }
@@ -269,7 +273,7 @@ export async function POST(req: Request) {
       const rawSlugText = postData.keyword || finalTitle;
       const finalSlug = postData.slug || (rawSlugText ? rawSlugText.toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '-').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\-]/g, "") : 'auto-post');
 
-      endpointStr = postType === 'page' ? 'pages' : 'posts';
+      endpointStr = postType === 'page' ? 'pages' : postType === 'news' ? 'news' : 'posts';
       wpPayload = {
         title: finalTitle || 'Bài viết Auto generated',
         content: "Đang tải nội dung...", // Gửi nội dung tạm để xí chỗ slug trước, tránh làm sập WP nếu raw HTML quá lớn
@@ -286,6 +290,11 @@ export async function POST(req: Request) {
         wpPayload.excerpt = finalMetaDesc;
         if (postData.categoryId) {
           wpPayload.categories = [postData.categoryId];
+        }
+      } else if (postType === 'news') {
+        wpPayload.excerpt = finalMetaDesc;
+        if (postData.categoryId) {
+          wpPayload.news_category = [postData.categoryId];
         }
       }
 
@@ -329,7 +338,7 @@ export async function POST(req: Request) {
       // Do bài viết đã chiếm thành công slug, tên file ảnh trùng slug sẽ không ảnh hưởng bài viết nữa
       let imageProcessResult;
       if (postData.imageType === 'caption') {
-        imageProcessResult = await processImagesByCaption(finalContent, finalTitle, siteConfig);
+        imageProcessResult = await processImagesByCaption(finalContent, postData.keyword || finalTitle, siteConfig);
       } else {
         imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, finalSlug, rawSlugText, siteConfig);
       }

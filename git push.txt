@@ -1,3 +1,3 @@
 git add .
-git commit -m "update cập nhật bài ở cate" 
+git commit -m "tạo đăng dạng news"
 git push

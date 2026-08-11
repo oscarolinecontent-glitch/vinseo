@@ -6,6 +6,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
 import { getWpAdminSession } from '@/lib/wpAuth';
+import { getWpAdminPath } from '@/lib/wpAuth';
 import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
@@ -94,10 +95,13 @@ async function updateCategoryDescriptionViaAdmin(
   }
   
   const base = siteConfig.wp_url.replace(/\/$/, '');
+  const loginPath = siteConfig.wp_login_path || '/wp-login.php';
+  const normalizedLoginPath = loginPath.startsWith('/') ? loginPath : `/${loginPath}`;
+  const adminBase = getWpAdminPath(normalizedLoginPath);
   
   try {
     // 1. Fetch trang edit-tags.php để lấy form nonce
-    const editUrl = `${base}/wp-admin/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
+    const editUrl = `${base}${adminBase}/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
     const getRes = await fetch(editUrl, {
       headers: {
         'Cookie': session.cookieStr,
@@ -124,7 +128,7 @@ async function updateCategoryDescriptionViaAdmin(
     formData.append('slug', slug);
     formData.append('description', descriptionHtml);
     
-    const postRes = await fetch(`${base}/wp-admin/edit-tags.php`, {
+    const postRes = await fetch(`${base}${adminBase}/edit-tags.php`, {
       method: 'POST',
       headers: {
         'Cookie': session.cookieStr,

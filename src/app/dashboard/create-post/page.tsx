@@ -9,7 +9,7 @@ import { collection, getDocs } from 'firebase/firestore';
 type PostItem = {
   id: string;
   gdoc_url: string;
-  postType: 'post' | 'page' | 'category';
+  postType: 'post' | 'page' | 'category' | 'news';
   categoryId: string;
   status: 'draft' | 'publish';
   title: string;
@@ -18,6 +18,7 @@ type PostItem = {
   resultStatus?: 'pending' | 'loading' | 'success' | 'error';
   resultMessage?: string;
   resultUrl?: string;
+  wp_id?: number;
 };
 
 type UpdateItem = {
@@ -406,7 +407,7 @@ export default function CreatePostPage() {
 
   const applyAllFormat = (val: string) => {
     if (!val) return;
-    setPosts(prev => prev.map(p => ({ ...p, postType: val as 'post' | 'page' | 'category' })));
+    setPosts(prev => prev.map(p => ({ ...p, postType: val as 'post' | 'page' | 'category' | 'news' })));
   };
 
   const applyAllStatus = (val: string) => {
@@ -467,7 +468,7 @@ export default function CreatePostPage() {
           const data = await res.json();
           
           if (data.success) {
-            setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'success', resultMessage: 'Đăng thành công!', resultUrl: data.url } : item));
+            setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'success', resultMessage: 'Đăng thành công!', resultUrl: data.url, wp_id: data.wp_id } : item));
             success = true;
           } else {
             if (attempt === maxAttempts) {
@@ -691,6 +692,7 @@ export default function CreatePostPage() {
                   <select onChange={(e) => { applyAllFormat(e.target.value); e.target.value = ''; }} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded text-[9px] px-1 py-0.5 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 cursor-pointer">
                     <option className="bg-white dark:bg-slate-900" value="">Set All</option>
                     <option className="bg-white dark:bg-slate-900" value="post">Post</option>
+                    <option className="bg-white dark:bg-slate-900" value="news">News</option>
                     <option className="bg-white dark:bg-slate-900" value="page">Page</option>
                     <option className="bg-white dark:bg-slate-900" value="category">Category</option>
                   </select>
@@ -725,7 +727,7 @@ export default function CreatePostPage() {
                   <input type="text" value={post.keyword || ''} onChange={(e) => updatePost(post.id, 'keyword', e.target.value)} placeholder="Từ khóa..." className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500" />
                 </div>
                 <div className="col-span-2">
-                  {post.postType === 'post' ? (
+                  {post.postType === 'post' || post.postType === 'news' ? (
                     siteCategories.length > 0 ? (
                       <select value={post.categoryId} onChange={(e) => updatePost(post.id, 'categoryId', e.target.value)} className="w-full bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
                         {siteCategories.map(cat => (
@@ -742,6 +744,7 @@ export default function CreatePostPage() {
                 <div className="col-span-2 flex gap-1">
                   <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value)} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded px-1 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="post">Post</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="news">News</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="page">Page</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="category">Category</option>
                   </select>
@@ -762,9 +765,22 @@ export default function CreatePostPage() {
                 </div>
                 <div className="col-span-1 text-center flex items-center justify-center gap-1">
                    {post.resultStatus === 'success' && post.resultUrl ? (
-                      <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
-                        <LinkIcon size={16} className="inline" />
-                      </a>
+                      <div className="flex gap-2 items-center justify-center">
+                        <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
+                          <LinkIcon size={16} className="inline" />
+                        </a>
+                        {post.wp_id && (
+                          <a 
+                            href={`${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/${post.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${post.wp_id}&post_type=post` : `post.php?post=${post.wp_id}&action=edit`}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="text-blue-500 hover:text-blue-400 transition" 
+                            title="Sửa bài trong WP"
+                          >
+                            <Edit3 size={16} className="inline" />
+                          </a>
+                        )}
+                      </div>
                    ) : null}
                    {post.resultStatus === 'error' ? (
                       <button
@@ -791,7 +807,22 @@ export default function CreatePostPage() {
 
         {/* Submit Button - Create Mode */}
         {mode === 'create' && (
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end gap-3 pt-2">
+            {posts.some(p => p.resultStatus === 'success' && p.wp_id) && (
+              <button
+                onClick={() => {
+                  posts.forEach(p => {
+                    if (p.resultStatus === 'success' && p.wp_id) {
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/${p.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${p.wp_id}&post_type=post` : `post.php?post=${p.wp_id}&action=edit`}`;
+                      window.open(editUrl, '_blank');
+                    }
+                  });
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-md font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/50"
+              >
+                Mở {posts.filter(p => p.resultStatus === 'success' && p.wp_id).length} tab chỉnh sửa WP
+              </button>
+            )}
             <button
               onClick={handleBulkSubmit}
               disabled={loading}

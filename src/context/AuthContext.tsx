@@ -34,8 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       router.push('/dashboard');
     } catch (error: any) {
       if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
-        // Người dùng tự đóng cửa sổ đăng nhập hoặc bấm liên tiếp, không cần báo lỗi đỏ
-        console.log("Đã đóng popup đăng nhập");
+        // Người dùng tự đóng cửa sổ đăng nhập hoặc bấm liên tiếp, không cần báo lỗi
         return;
       }
       console.error("Error signing in with Google", error);

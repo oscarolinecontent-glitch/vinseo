@@ -4,6 +4,26 @@ const sessionCache: Record<string, { cookieStr: string, nonce: string, timestamp
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 /**
+ * Suy ra đường dẫn wp-admin base từ login path.
+ * Hỗ trợ WordPress cài trong thư mục con (VD: /wp/) mà site URL là root.
+ * 
+ * Ví dụ:
+ *   /wp/wp-login.php   → /wp/wp-admin
+ *   /wp-login.php      → /wp-admin
+ *   /custom-login      → /wp-admin  (custom path → dùng mặc định)
+ */
+export function getWpAdminPath(loginPath: string): string {
+  const idx = loginPath.lastIndexOf('wp-login.php');
+  if (idx > 0) {
+    // loginPath = /wp/wp-login.php → prefix = /wp/ → return /wp/wp-admin
+    const prefix = loginPath.substring(0, idx);
+    return `${prefix}wp-admin`;
+  }
+  // Mặc định
+  return '/wp-admin';
+}
+
+/**
  * Giả lập browser: GET trang login → lấy form action + hidden fields + cookies → POST form login.
  * Xử lý chính xác các trường hợp:
  * - Login URL custom (VD: /web_auth/, /hidden-login/)
@@ -15,7 +35,8 @@ async function attemptWpLogin(
   wpUser: string,
   wpPassword: string,
   basicAuthHeader: string,
-  base: string
+  base: string,
+  adminBase: string
 ): Promise<{ cookieStr: string; nonce: string } | null> {
   try {
     // ===================== BƯỚC 1: GET TRANG LOGIN =====================
@@ -84,7 +105,7 @@ async function attemptWpLogin(
       log: wpUser,
       pwd: wpPassword,
       'wp-submit': 'Log In',
-      redirect_to: `${base}/wp-admin/`,
+      redirect_to: `${base}${adminBase}/`,
       testcookie: '1',
       ...hiddenFields, // Include any hidden fields from the form (nonces, security tokens)
     });
@@ -164,14 +185,14 @@ async function attemptWpLogin(
         
         const updatedCookieStr = Object.values(cookieMap).join('; ');
         if (updatedCookieStr.includes('wordpress_logged_in')) {
-          return await fetchNonce(updatedCookieStr, basicAuthHeader, base);
+          return await fetchNonce(updatedCookieStr, basicAuthHeader, base, adminBase);
         }
       }
       
       return null;
     }
 
-    return await fetchNonce(finalCookieStr, basicAuthHeader, base);
+    return await fetchNonce(finalCookieStr, basicAuthHeader, base, adminBase);
   } catch (e) {
     console.error('wpAuth attemptWpLogin error:', e);
     return null;
@@ -184,7 +205,8 @@ async function attemptWpLogin(
 async function fetchNonce(
   cookieStr: string,
   basicAuthHeader: string,
-  base: string
+  base: string,
+  adminBase: string
 ): Promise<{ cookieStr: string; nonce: string } | null> {
   const editHeaders: any = {
     'Cookie': cookieStr,
@@ -195,7 +217,7 @@ async function fetchNonce(
     editHeaders['Authorization'] = basicAuthHeader;
   }
 
-  const editPageRes = await fetch(`${base}/wp-admin/post-new.php`, {
+  const editPageRes = await fetch(`${base}${adminBase}/post-new.php`, {
     headers: editHeaders,
   });
   const editPageHtml = await editPageRes.text();
@@ -234,6 +256,7 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
     const normalizedLoginPath = loginPath.startsWith('http') ? loginPath : (loginPath.startsWith('/') ? loginPath : `/${loginPath}`);
     let loginUrl = normalizedLoginPath.startsWith('http') ? normalizedLoginPath : `${base}${normalizedLoginPath}`;
+    const adminBase = getWpAdminPath(normalizedLoginPath);
 
     // Trích xuất Basic Auth credentials nếu có nhúng trong URL (http://user:pass@domain/path)
     let basicAuthHeader = '';
@@ -248,15 +271,15 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     } catch (e) { }
 
     // Lần 1: Thử login qua URL cấu hình (VD: /web_auth/, /hidden-login/, /wp-login.php)
-    let result = await attemptWpLogin(loginUrl, siteConfig.wp_user, loginPass, basicAuthHeader, base);
+    let result = await attemptWpLogin(loginUrl, siteConfig.wp_user, loginPass, basicAuthHeader, base, adminBase);
 
     // Lần 2: Nếu custom path fail → thử /wp-login.php chuẩn + Basic Auth header
     if (!result) {
       const isCustomPath = !loginUrl.includes('/wp-login.php');
       if (isCustomPath) {
         const standardLoginUrl = `${base}/wp-login.php`;
-
-        result = await attemptWpLogin(standardLoginUrl, siteConfig.wp_user, loginPass, basicAuthHeader, base);
+        const standardAdminBase = '/wp-admin';
+        result = await attemptWpLogin(standardLoginUrl, siteConfig.wp_user, loginPass, basicAuthHeader, base, standardAdminBase);
       }
     }
 
