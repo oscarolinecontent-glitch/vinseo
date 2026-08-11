@@ -32,6 +32,7 @@ type UpdateItem = {
   resultUrl?: string;
   thumbnailUpdated?: boolean;
   errorCode?: string;
+  wp_id?: number;
 };
 
 export default function CreatePostPage() {
@@ -287,6 +288,7 @@ export default function CreatePostPage() {
                 ? 'Không có thumbnail — vui lòng thêm thủ công'
                 : 'Đã cập nhật!'),
               resultUrl: data.url,
+              wp_id: data.wp_id,
               thumbnailUpdated: data.thumbnailUpdated !== false,
             } : u));
             success = true;
@@ -331,7 +333,9 @@ export default function CreatePostPage() {
     id: string; wp_post_url: string; gdoc_url: string; keyword?: string;
     resultStatus?: 'pending' | 'loading' | 'success' | 'error';
     resultMessage?: string; resultUrl?: string;
-    thumbnailUpdated?: boolean; imagesInjected?: number; errorCode?: string;
+    thumbnailUpdated?: boolean;  imagesInjected?: number;
+    errorCode?: string;
+    wp_id?: number;
   };
   const [syncItems, setSyncItems] = React.useState<SyncItem[]>([
     { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '' }
@@ -383,7 +387,7 @@ export default function CreatePostPage() {
           const data = await res.json();
           if (data.success) {
             setSyncItems(prev => prev.map(s => s.id === item.id ? {
-              ...s, resultStatus: 'success', resultUrl: data.url,
+              ...s, resultStatus: 'success', resultUrl: data.url, wp_id: data.wp_id,
               thumbnailUpdated: data.thumbnailUpdated !== false, imagesInjected: data.imagesInjected || 0,
             } : s));
             success = true;
@@ -769,17 +773,6 @@ export default function CreatePostPage() {
                         <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
                           <LinkIcon size={16} className="inline" />
                         </a>
-                        {post.wp_id && (
-                          <a 
-                            href={`${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/${post.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${post.wp_id}&post_type=post` : `post.php?post=${post.wp_id}&action=edit`}`} 
-                            target="_blank" 
-                            rel="noreferrer" 
-                            className="text-blue-500 hover:text-blue-400 transition" 
-                            title="Sửa bài trong WP"
-                          >
-                            <Edit3 size={16} className="inline" />
-                          </a>
-                        )}
                       </div>
                    ) : null}
                    {post.resultStatus === 'error' ? (
@@ -983,7 +976,22 @@ export default function CreatePostPage() {
           </div>
 
           {/* Submit Button - Update Mode */}
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end gap-3 pt-2">
+            {updateItems.some(u => u.resultStatus === 'success' && u.wp_id) && (
+              <button
+                onClick={() => {
+                  updateItems.forEach(u => {
+                    if (u.resultStatus === 'success' && u.wp_id) {
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/post.php?post=${u.wp_id}&action=edit`;
+                      window.open(editUrl, '_blank');
+                    }
+                  });
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-md font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/50"
+              >
+                Mở {updateItems.filter(u => u.resultStatus === 'success' && u.wp_id).length} tab chỉnh sửa WP
+              </button>
+            )}
             <button
               onClick={handleBulkUpdate}
               disabled={loading}
@@ -1102,7 +1110,22 @@ export default function CreatePostPage() {
             ))}
           </div>
 
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end gap-3 pt-4">
+            {syncItems.some(s => s.resultStatus === 'success' && s.wp_id) && (
+              <button
+                onClick={() => {
+                  syncItems.forEach(s => {
+                    if (s.resultStatus === 'success' && s.wp_id) {
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/post.php?post=${s.wp_id}&action=edit`;
+                      window.open(editUrl, '_blank');
+                    }
+                  });
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-md font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/50"
+              >
+                Mở {syncItems.filter(s => s.resultStatus === 'success' && s.wp_id).length} tab chỉnh sửa WP
+              </button>
+            )}
             <button onClick={handleBulkSync} disabled={loading}
               className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all ${
                 loading ? 'bg-gray-600 text-white cursor-not-allowed'
