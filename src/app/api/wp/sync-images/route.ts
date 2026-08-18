@@ -435,6 +435,7 @@ export async function POST(request: Request) {
       success: true,
       url: updatedData.link || postData.wp_post_url,
       wp_id: postId,
+      postType,
       thumbnailUpdated,
       imagesInjected: uploadedImageMap.size,
       message: `Đã sync ${uploadedImageMap.size} ảnh vào bài #${postId}${thumbnailUpdated ? ' + thumbnail' : ''}`,

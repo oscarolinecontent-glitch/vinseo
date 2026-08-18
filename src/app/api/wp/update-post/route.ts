@@ -387,6 +387,7 @@ export async function POST(req: Request) {
         success: true,
         url: postData.wp_post_url,
         wp_id: postId,
+        postType,
         thumbnailUpdated: false,
         message: updateMethod === 'admin'
           ? `Đã cập nhật category #${postId} thành công (Admin Session)`
@@ -465,6 +466,7 @@ export async function POST(req: Request) {
       success: true,
       url: updatedData.link || postData.wp_post_url,
       wp_id: postId,
+      postType,
       thumbnailUpdated,
       message: thumbnailUpdated
         ? `Đã cập nhật bài viết #${postId} thành công (có thumbnail)`

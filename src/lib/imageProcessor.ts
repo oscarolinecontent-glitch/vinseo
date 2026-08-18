@@ -373,16 +373,40 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
   if (dataSearch && dataSearch.length > 0) {
     let availableMedia = dataSearch.filter((d: any) => !globalUsedMediaIds.includes(d.id));
     if (availableMedia.length > 0) {
-      // Ưu tiên ảnh có source_url chứa slug tìm kiếm
-      for(let d of availableMedia) {
-        if(d.source_url && d.source_url.includes(shortName)) {
-          globalUsedMediaIds.push(d.id);
-          return { id: d.id, url: d.source_url, w: d.media_details?.width, h: d.media_details?.height };
-        }
-      }
-      // Fallback: lấy ảnh đầu tiên available
-      globalUsedMediaIds.push(availableMedia[0].id);
-      return { id: availableMedia[0].id, url: availableMedia[0].source_url, w: availableMedia[0].media_details?.width, h: availableMedia[0].media_details?.height };
+      const getFilename = (url: string) => {
+        if (!url) return '';
+        const parts = url.split('/');
+        return parts[parts.length - 1].toLowerCase();
+      };
+      
+      const searchKey = shortName.toLowerCase();
+
+      // Sắp xếp ưu tiên:
+      // 1. Tên file BẮT ĐẦU bằng từ khóa (ví dụ: keyword-abc.jpg)
+      // 2. Tên file CHỨA từ khóa (ví dụ: prefix-keyword.jpg)
+      // 3. Kết quả search mặc định của WordPress
+      availableMedia.sort((a: any, b: any) => {
+        const fileA = getFilename(a.source_url);
+        const fileB = getFilename(b.source_url);
+        
+        const aStarts = fileA.startsWith(searchKey);
+        const bStarts = fileB.startsWith(searchKey);
+        
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        
+        const aContains = fileA.includes(searchKey);
+        const bContains = fileB.includes(searchKey);
+        
+        if (aContains && !bContains) return -1;
+        if (!aContains && bContains) return 1;
+        
+        return 0;
+      });
+
+      const bestMatch = availableMedia[0];
+      globalUsedMediaIds.push(bestMatch.id);
+      return { id: bestMatch.id, url: bestMatch.source_url, w: bestMatch.media_details?.width, h: bestMatch.media_details?.height };
     }
   }
   

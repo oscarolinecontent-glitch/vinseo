@@ -33,6 +33,7 @@ type UpdateItem = {
   thumbnailUpdated?: boolean;
   errorCode?: string;
   wp_id?: number;
+  postType?: 'post' | 'page' | 'category' | 'news';
 };
 
 export default function CreatePostPage() {
@@ -63,6 +64,14 @@ export default function CreatePostPage() {
     image_width: '',
     image_height: ''
   });
+
+  const getAdminBase = () => {
+    let p = siteConfig.wp_login_path || '';
+    if (!p.startsWith('/') && p !== '') p = '/' + p;
+    const idx = p.lastIndexOf('wp-login.php');
+    if (idx > 0) return p.substring(0, idx) + 'wp-admin';
+    return '/wp-admin';
+  };
 
   const [imageType, setImageType] = useState<'key' | 'caption'>('key');
   const [makeLinksRelative, setMakeLinksRelative] = useState(false);
@@ -289,6 +298,7 @@ export default function CreatePostPage() {
                 : 'Đã cập nhật!'),
               resultUrl: data.url,
               wp_id: data.wp_id,
+              postType: data.postType,
               thumbnailUpdated: data.thumbnailUpdated !== false,
             } : u));
             success = true;
@@ -336,6 +346,7 @@ export default function CreatePostPage() {
     thumbnailUpdated?: boolean;  imagesInjected?: number;
     errorCode?: string;
     wp_id?: number;
+    postType?: 'post' | 'page' | 'category' | 'news';
   };
   const [syncItems, setSyncItems] = React.useState<SyncItem[]>([
     { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '' }
@@ -387,7 +398,7 @@ export default function CreatePostPage() {
           const data = await res.json();
           if (data.success) {
             setSyncItems(prev => prev.map(s => s.id === item.id ? {
-              ...s, resultStatus: 'success', resultUrl: data.url, wp_id: data.wp_id,
+              ...s, resultStatus: 'success', resultUrl: data.url, wp_id: data.wp_id, postType: data.postType,
               thumbnailUpdated: data.thumbnailUpdated !== false, imagesInjected: data.imagesInjected || 0,
             } : s));
             success = true;
@@ -806,7 +817,8 @@ export default function CreatePostPage() {
                 onClick={() => {
                   posts.forEach(p => {
                     if (p.resultStatus === 'success' && p.wp_id) {
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/${p.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${p.wp_id}&post_type=post` : `post.php?post=${p.wp_id}&action=edit`}`;
+                      const adminBase = getAdminBase();
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${p.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${p.wp_id}&post_type=post` : `post.php?post=${p.wp_id}&action=edit`}`;
                       window.open(editUrl, '_blank');
                     }
                   });
@@ -982,7 +994,8 @@ export default function CreatePostPage() {
                 onClick={() => {
                   updateItems.forEach(u => {
                     if (u.resultStatus === 'success' && u.wp_id) {
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/post.php?post=${u.wp_id}&action=edit`;
+                      const adminBase = getAdminBase();
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${u.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${u.wp_id}&post_type=post` : `post.php?post=${u.wp_id}&action=edit`}`;
                       window.open(editUrl, '_blank');
                     }
                   });
@@ -1116,7 +1129,8 @@ export default function CreatePostPage() {
                 onClick={() => {
                   syncItems.forEach(s => {
                     if (s.resultStatus === 'success' && s.wp_id) {
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}/wp-admin/post.php?post=${s.wp_id}&action=edit`;
+                      const adminBase = getAdminBase();
+                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${s.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${s.wp_id}&post_type=post` : `post.php?post=${s.wp_id}&action=edit`}`;
                       window.open(editUrl, '_blank');
                     }
                   });

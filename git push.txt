@@ -1,3 +1,3 @@
 git add .
-git commit -m "tạo nút mở link hàng loạt"
+git commit -m "cập  nhật nút mở link với dạng url  site  /wp/wp-login.php"
 git push
