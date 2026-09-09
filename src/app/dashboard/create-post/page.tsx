@@ -66,11 +66,33 @@ export default function CreatePostPage() {
   });
 
   const getAdminBase = () => {
-    let p = siteConfig.wp_login_path || '';
+    let p = (siteConfig.wp_login_path || '').trim();
+    if (p.startsWith('http://') || p.startsWith('https://')) {
+      try {
+        p = new URL(p).pathname;
+      } catch (e) {
+        p = '';
+      }
+    }
     if (!p.startsWith('/') && p !== '') p = '/' + p;
     const idx = p.lastIndexOf('wp-login.php');
-    if (idx > 0) return p.substring(0, idx) + 'wp-admin';
+    if (idx > 0) {
+      const prefix = p.substring(0, idx).replace(/\/$/, '');
+      return prefix ? `${prefix}/wp-admin` : '/wp-admin';
+    }
     return '/wp-admin';
+  };
+
+  const getEditUrl = (wpId: number, postType?: string) => {
+    let base = (siteConfig.wp_url || '').trim().replace(/\/$/, '');
+    if (base && !base.startsWith('http://') && !base.startsWith('https://')) {
+      base = 'https://' + base;
+    }
+    const adminPath = getAdminBase();
+    const query = postType === 'category'
+      ? `term.php?taxonomy=category&tag_ID=${wpId}&post_type=post`
+      : `post.php?post=${wpId}&action=edit`;
+    return `${base}${adminPath}/${query}`;
   };
 
   const [imageType, setImageType] = useState<'key' | 'caption'>('key');
@@ -817,8 +839,7 @@ export default function CreatePostPage() {
                 onClick={() => {
                   posts.forEach(p => {
                     if (p.resultStatus === 'success' && p.wp_id) {
-                      const adminBase = getAdminBase();
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${p.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${p.wp_id}&post_type=post` : `post.php?post=${p.wp_id}&action=edit`}`;
+                      const editUrl = getEditUrl(p.wp_id, p.postType);
                       window.open(editUrl, '_blank');
                     }
                   });
@@ -994,8 +1015,7 @@ export default function CreatePostPage() {
                 onClick={() => {
                   updateItems.forEach(u => {
                     if (u.resultStatus === 'success' && u.wp_id) {
-                      const adminBase = getAdminBase();
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${u.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${u.wp_id}&post_type=post` : `post.php?post=${u.wp_id}&action=edit`}`;
+                      const editUrl = getEditUrl(u.wp_id, u.postType);
                       window.open(editUrl, '_blank');
                     }
                   });
@@ -1129,8 +1149,7 @@ export default function CreatePostPage() {
                 onClick={() => {
                   syncItems.forEach(s => {
                     if (s.resultStatus === 'success' && s.wp_id) {
-                      const adminBase = getAdminBase();
-                      const editUrl = `${siteConfig.wp_url?.replace(/\/$/, '') || ''}${adminBase}/${s.postType === 'category' ? `term.php?taxonomy=category&tag_ID=${s.wp_id}&post_type=post` : `post.php?post=${s.wp_id}&action=edit`}`;
+                      const editUrl = getEditUrl(s.wp_id, s.postType);
                       window.open(editUrl, '_blank');
                     }
                   });

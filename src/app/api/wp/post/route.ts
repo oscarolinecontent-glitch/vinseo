@@ -12,6 +12,16 @@ import { makeInternalLinksRelative } from '@/lib/wpHelper';
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
 export const maxDuration = 300;
 
+/** Escape ký tự đặc biệt XML để nhúng an toàn vào XML-RPC body */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 /**
  * Giả lập browser đăng nhập WP → lấy session cookie → lấy nonce → gọi Rank Math internal API
  * Đây là cách duy nhất bypass bảo vệ REST API meta của WordPress khi không có quyền Admin.
@@ -96,7 +106,7 @@ async function updateCategoryDescriptionViaAdmin(
   const adminBase = getWpAdminPath(normalizedLoginPath);
   
   try {
-    // 1. Fetch trang edit-tags.php để lấy form nonce
+    // 1. Fetch trang term.php để lấy form nonce
     const editUrl = `${base}${adminBase}/term.php?taxonomy=category&tag_ID=${categoryId}&post_type=post`;
     const getRes = await fetch(editUrl, {
       headers: {
@@ -109,9 +119,50 @@ async function updateCategoryDescriptionViaAdmin(
     // Tìm _wpnonce cho form edit tag
     const nonceMatch = html.match(/<input type="hidden" id="_wpnonce" name="_wpnonce" value="([^"]+)"/);
     if (!nonceMatch) {
-      console.warn('Update Category HTML: Không tìm thấy _wpnonce trên trang term.php.');
+      console.warn(`Update Category HTML: term.php ${getRes.status}. Thử XML-RPC...`);
+
+      // Fallback 1: XML-RPC wp.editTerm — không bị kses filter, giữ nguyên HTML + ảnh
+      const xmlrpcUrl = `${base}/xmlrpc.php`;
+      const loginPass = siteConfig.wp_password || siteConfig.wp_app_pass;
+      const xmlBody = `<?xml version="1.0"?>
+<methodCall>
+  <methodName>wp.editTerm</methodName>
+  <params>
+    <param><value><int>1</int></value></param>
+    <param><value><string>${escapeXml(siteConfig.wp_user)}</string></value></param>
+    <param><value><string>${escapeXml(loginPass)}</string></value></param>
+    <param><value><int>${categoryId}</int></value></param>
+    <param><value><string>category</string></value></param>
+    <param><value><struct>
+      <member><name>name</name><value><string>${escapeXml(title)}</string></value></member>
+      <member><name>slug</name><value><string>${escapeXml(slug)}</string></value></member>
+      <member><name>description</name><value><string>${escapeXml(descriptionHtml)}</string></value></member>
+    </struct></value></param>
+  </params>
+</methodCall>`;
+      const xmlrpcRes = await fetch(xmlrpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/xml', 'User-Agent': 'Mozilla/5.0', 'Connection': 'close' },
+        body: xmlBody
+      });
+      const xmlrpcText = await xmlrpcRes.text();
+      console.log(`Update Category XML-RPC (${categoryId}): Status ${xmlrpcRes.status}, success: ${xmlrpcText.includes('<boolean>1</boolean>')}`);
+      if (xmlrpcRes.ok && xmlrpcText.includes('<boolean>1</boolean>')) return;
+
+      // Fallback 2: REST API (sẽ strip HTML — cần admin cấp quyền manage_categories + unfiltered_html cho account)
+      console.warn(`Update Category: XML-RPC thất bại. REST API fallback (sẽ strip HTML)...`);
+      const restUpdateRes = await fetch(`${base}/wp-json/wp/v2/categories/${categoryId}`, {
+        method: 'POST',
+        headers: {
+          'Cookie': session.cookieStr, 'X-WP-Nonce': session.nonce,
+          'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0', 'Connection': 'close'
+        },
+        body: JSON.stringify({ name: title, slug, description: descriptionHtml })
+      });
+      console.log(`Update Category REST fallback (${categoryId}): Status ${restUpdateRes.status}`);
       return;
     }
+
     const formNonce = nonceMatch[1];
     
     // 2. Submit form lên edit-tags.php

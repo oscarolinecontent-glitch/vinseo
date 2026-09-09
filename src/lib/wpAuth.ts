@@ -13,15 +13,24 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
  *   /custom-login      → /wp-admin  (custom path → dùng mặc định)
  */
 export function getWpAdminPath(loginPath: string): string {
-  const idx = loginPath.lastIndexOf('wp-login.php');
+  // Nếu là full URL (https://...), chỉ lấy pathname để tính admin path
+  let pathOnly = loginPath;
+  try {
+    if (loginPath.startsWith('http')) {
+      pathOnly = new URL(loginPath).pathname;
+    }
+  } catch (e) { }
+
+  const idx = pathOnly.lastIndexOf('wp-login.php');
   if (idx > 0) {
-    // loginPath = /wp/wp-login.php → prefix = /wp/ → return /wp/wp-admin
-    const prefix = loginPath.substring(0, idx);
+    // pathOnly = /wp/wp-login.php → prefix = /wp/ → return /wp/wp-admin
+    const prefix = pathOnly.substring(0, idx);
     return `${prefix}wp-admin`;
   }
   // Mặc định
   return '/wp-admin';
 }
+
 
 /**
  * Giả lập browser: GET trang login → lấy form action + hidden fields + cookies → POST form login.
@@ -222,18 +231,45 @@ async function fetchNonce(
   });
   const editPageHtml = await editPageRes.text();
 
-  // Ưu tiên lấy nonce chuẩn của WordPress REST API (wpApiSettings)
+  // Thử nhiều patterns khác nhau (Gutenberg, Classic Editor, inline JSON, etc.)
   const nonceMatch = editPageHtml.match(/wpApiSettings[\s\S]*?"nonce":"([a-f0-9]+)"/i)
     || editPageHtml.match(/"restNonce":"([a-f0-9]+)"/i)
     || editPageHtml.match(/rankMath[\s\S]*?"nonce":"([a-f0-9]+)"/i)
+    || editPageHtml.match(/"wp_rest":"([a-f0-9]+)"/i)
+    || editPageHtml.match(/wp\.apiFetch\.use\(.*?nonce['":\s]+([a-f0-9]+)/i)
     || editPageHtml.match(/"nonce":"([a-f0-9]+)"/i);
 
-  if (!nonceMatch) {
-    console.error('wpAuth: Nonce not found in wp-admin html.');
-    return null;
+  if (nonceMatch) {
+    return { cookieStr, nonce: nonceMatch[1] };
   }
 
-  return { cookieStr, nonce: nonceMatch[1] };
+  // Fallback: thử lấy nonce qua admin-ajax
+  try {
+    const ajaxNonceRes = await fetch(`${base}${adminBase}/admin-ajax.php?action=rest-nonce`, {
+      headers: { 'Cookie': cookieStr, 'User-Agent': UA, 'Connection': 'close', ...(basicAuthHeader ? { 'Authorization': basicAuthHeader } : {}) },
+    });
+    const ajaxText = await ajaxNonceRes.text();
+    if (ajaxNonceRes.ok && /^[a-f0-9]{10}$/i.test(ajaxText.trim())) {
+      return { cookieStr, nonce: ajaxText.trim() };
+    }
+  } catch (e) { }
+
+  // Fallback 2: thử /wp-admin/profile.php
+  try {
+    const profileRes = await fetch(`${base}${adminBase}/profile.php`, {
+      headers: { 'Cookie': cookieStr, 'User-Agent': UA, 'Connection': 'close', ...(basicAuthHeader ? { 'Authorization': basicAuthHeader } : {}) },
+    });
+    const profileHtml = await profileRes.text();
+    const profileNonce = profileHtml.match(/wpApiSettings[\s\S]*?"nonce":"([a-f0-9]+)"/i)
+      || profileHtml.match(/"restNonce":"([a-f0-9]+)"/i)
+      || profileHtml.match(/"nonce":"([a-f0-9]+)"/i);
+    if (profileNonce) {
+      return { cookieStr, nonce: profileNonce[1] };
+    }
+  } catch (e) { }
+
+  console.error('wpAuth: Nonce not found anywhere.');
+  return null;
 }
 
 export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: string, nonce: string } | null> {

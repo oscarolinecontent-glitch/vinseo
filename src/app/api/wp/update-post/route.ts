@@ -113,8 +113,21 @@ async function updateCategoryDescriptionViaAdmin(
     // Tìm _wpnonce cho form edit tag
     const nonceMatch = html.match(/<input type="hidden" id="_wpnonce" name="_wpnonce" value="([^"]+)"/);
     if (!nonceMatch) {
-      console.warn('Update Category HTML: Không tìm thấy _wpnonce trên trang term.php.');
-      return false;
+      console.warn(`Update Category HTML: Không tìm thấy _wpnonce trên trang term.php (status: ${getRes.status}). Thử REST API fallback...`);
+      // Fallback: dùng REST API /wp/v2/categories với cookie+nonce để cập nhật description
+      const restUpdateRes = await fetch(`${base}/wp-json/wp/v2/categories/${categoryId}`, {
+        method: 'POST',
+        headers: {
+          'Cookie': session.cookieStr,
+          'X-WP-Nonce': session.nonce,
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Connection': 'close'
+        },
+        body: JSON.stringify({ name: title, slug, description: descriptionHtml })
+      });
+      console.log(`Update Category REST fallback (${categoryId}): Status ${restUpdateRes.status}`);
+      return restUpdateRes.ok;
     }
     const formNonce = nonceMatch[1];
     
