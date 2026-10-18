@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { errorMessage } from '@/lib/types';
+
+import { apiFetch } from '@/lib/apiClient';
+
+import React, { useState } from 'react';
 import { Scaling, Settings, Key, RefreshCw, CheckCircle2, AlertCircle, Link as LinkIcon, Send } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useProjects } from '@/hooks/useProjects';
 
 type PostResult = {
   postUrl: string;
@@ -14,12 +16,11 @@ type PostResult = {
 };
 
 export default function ResizeImagesPage() {
-  const { user } = useAuth();
+  const { projects, error: projectsError } = useProjects();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{success: boolean, message: string, user?: string} | null>(null);
 
-  const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
   const [siteConfig, setSiteConfig] = useState({
@@ -38,19 +39,7 @@ export default function ResizeImagesPage() {
   const [results, setResults] = useState<PostResult[]>([]);
   const [globalMessage, setGlobalMessage] = useState('');
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      if (!user) return;
-      const q = collection(db, 'users', user.uid, 'projects');
-      const querySnapshot = await getDocs(q);
-      const loaded: any[] = [];
-      querySnapshot.forEach((doc) => {
-        loaded.push({ id: doc.id, ...doc.data() });
-      });
-      setProjects(loaded);
-    };
-    fetchProjects();
-  }, [user]);
+
 
   const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value;
@@ -86,15 +75,15 @@ export default function ResizeImagesPage() {
     }
     setChecking(true);
     try {
-      const res = await fetch('/api/wp/check', {
+      const res = await apiFetch('/api/wp/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ siteConfig })
       });
       const data = await res.json();
       setCheckResult(data);
-    } catch (err: any) {
-      setCheckResult({ success: false, message: err.message });
+    } catch (err) {
+      setCheckResult({ success: false, message: errorMessage(err) });
     } finally {
       setChecking(false);
     }
@@ -132,10 +121,8 @@ export default function ResizeImagesPage() {
       setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'loading', message: 'Đang xử lý...' } : r));
 
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
 
-        const res = await fetch('/api/wp/resize-images', {
+        const res = await apiFetch('/api/wp/resize-images', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -146,10 +133,7 @@ export default function ResizeImagesPage() {
             imageFormat,
             deleteOldMedia
           }),
-          signal: controller.signal
         });
-
-        clearTimeout(timeoutId);
         const data = await res.json();
 
         if (data.success && data.results?.[0]) {
@@ -160,8 +144,8 @@ export default function ResizeImagesPage() {
           setResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: data.message || 'Lỗi' } : item));
           errorCount++;
         }
-      } catch (err: any) {
-        const msg = err.name === 'AbortError' ? 'Timeout' : err.message;
+      } catch (err) {
+        const msg = err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError') ? 'Timeout' : errorMessage(err);
         setResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: msg } : item));
         errorCount++;
       }
@@ -175,13 +159,14 @@ export default function ResizeImagesPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-8 pt-10">
+      {projectsError && <p role="alert" className="mb-4 text-sm text-red-500">Không tải được dự án: {projectsError}</p>}
       <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <Scaling className="text-emerald-400" />
           Resize Ảnh Bài Đã Đăng
         </h1>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          Thay đổi kích thước tất cả ảnh trong bài viết đã publish. Ảnh cũ sẽ bị xoá và thay bằng ảnh mới đã resize.
+          Thay đổi kích thước tất cả ảnh trong bài viết đã publish. Ảnh cũ được giữ lại mặc định; có thể chọn xoá sau khi cập nhật thành công.
         </p>
       </header>
 

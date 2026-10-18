@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Code, Check } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 export default function DocsPage() {
   return (
@@ -21,12 +21,12 @@ export default function DocsPage() {
             Tạo Application Password trên WordPress
           </h2>
           <div className="text-gray-600 dark:text-gray-400 text-sm space-y-3 leading-relaxed">
-            <p>Để bảo mật, hệ thống không lưu mật khẩu chính của tài khoản quản trị WP, thay vào đó bạn hãy dùng <strong>Application Passwords</strong>.</p>
+            <p>Ưu tiên dùng <strong>Application Passwords</strong>. Mật khẩu WP thường chỉ cần cho tính năng đăng nhập dự phòng và RankMath; chỉ lưu khi thực sự cần.</p>
             <ul className="list-disc pl-5 space-y-2">
               <li>Đăng nhập vào trang quản trị WordPress (wp-admin).</li>
               <li>Truy cập menu <strong>Users</strong> (Thành viên) &gt; <strong>Profile</strong> (Hồ sơ).</li>
               <li>Cuộn xuống mục <strong>Application Passwords</strong> (Mật khẩu ứng dụng).</li>
-              <li>Nhập tên bất kỳ (VD: "Auto SEO Tool") và nhấn <strong>Add New Application Password</strong>.</li>
+              <li>Nhập tên bất kỳ (VD: &quot;Auto SEO Tool&quot;) và nhấn <strong>Add New Application Password</strong>.</li>
               <li>Copy chuỗi mật khẩu gồm 24 ký tự (VD: <code className="bg-gray-800 px-1 py-0.5 rounded text-violet-400">xxxx xxxx xxxx xxxx xxxx xxxx</code>) và dán vào form trên App.</li>
             </ul>
           </div>

@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { errorMessage } from '@/lib/types';
+
+import { apiFetch } from '@/lib/apiClient';
+
+import React, { useState, useRef } from 'react';
 import { UploadCloud, Settings, Key, RefreshCw, CheckCircle2, AlertCircle, FileArchive, Send, Download, Link as LinkIcon, FolderSync } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
-import JSZip from 'jszip';
+import { useProjects } from '@/hooks/useProjects';
 
 type ImageFile = {
   name: string;
@@ -21,12 +22,11 @@ type ProcessResult = {
 };
 
 export default function DriveDownloaderPage() {
-  const { user } = useAuth();
+  const { projects, error: projectsError } = useProjects();
   
   const [activeTab, setActiveTab] = useState<'zip_to_wp' | 'drive_to_zip'>('zip_to_wp');
   
   // Tab: Drive to Zip
-  const [googleApiKey, setGoogleApiKey] = useState('');
   const [driveUrlsText, setDriveUrlsText] = useState('');
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [driveResults, setDriveResults] = useState<ProcessResult[]>([]);
@@ -35,7 +35,6 @@ export default function DriveDownloaderPage() {
   const [loadingType, setLoadingType] = useState<'wp' | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{success: boolean, message: string, user?: string} | null>(null);
-  const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [siteConfig, setSiteConfig] = useState({
     wp_url: '',
@@ -48,28 +47,7 @@ export default function DriveDownloaderPage() {
   const [globalMessage, setGlobalMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const savedKey = localStorage.getItem('google_drive_api_key');
-    if (savedKey) setGoogleApiKey(savedKey);
 
-    const fetchProjects = async () => {
-      if (!user) return;
-      const q = collection(db, 'users', user.uid, 'projects');
-      const querySnapshot = await getDocs(q);
-      const loaded: any[] = [];
-      querySnapshot.forEach((doc) => {
-        loaded.push({ id: doc.id, ...doc.data() });
-      });
-      setProjects(loaded);
-    };
-    fetchProjects();
-  }, [user]);
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setGoogleApiKey(val);
-    localStorage.setItem('google_drive_api_key', val);
-  };
 
   const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value;
@@ -104,15 +82,15 @@ export default function DriveDownloaderPage() {
     }
     setChecking(true);
     try {
-      const res = await fetch('/api/wp/check', {
+      const res = await apiFetch('/api/wp/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ siteConfig })
       });
       const data = await res.json();
       setCheckResult(data);
-    } catch (err: any) {
-      setCheckResult({ success: false, message: err.message });
+    } catch (err) {
+      setCheckResult({ success: false, message: errorMessage(err) });
     } finally {
       setChecking(false);
     }
@@ -121,6 +99,7 @@ export default function DriveDownloaderPage() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 50 * 1024 * 1024) { setGlobalMessage('File ZIP vượt giới hạn 50 MB.'); return; }
 
     if (!file.name.toLowerCase().endsWith('.zip')) {
        alert('Vui lòng chọn file .zip');
@@ -129,14 +108,31 @@ export default function DriveDownloaderPage() {
 
     setGlobalMessage('Đang giải nén file zip...');
     try {
+      const { default: JSZip } = await import('jszip');
       const zip = await JSZip.loadAsync(file);
+      let extractedBytes = 0;
       const extractedImages: ImageFile[] = [];
 
       for (const [filename, zipEntry] of Object.entries(zip.files)) {
         if (!zipEntry.dir) {
           const lowerName = filename.toLowerCase();
           if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp') || lowerName.endsWith('.gif')) {
-             const blob = await zipEntry.async('blob');
+             if (extractedImages.length >= 200) throw new Error('Mỗi lần xử lý tối đa 200 ảnh.');
+             const chunks: Uint8Array[] = [];
+             let fileBytes = 0;
+             await new Promise<void>((resolve, reject) => {
+               // JSZip supports incremental extraction, but omits it from JSZipObject's declarations.
+               const stream = (zipEntry as typeof zipEntry & { internalStream(type: 'uint8array'): import('jszip').JSZipStreamHelper<Uint8Array> }).internalStream('uint8array');
+               stream.on('data', chunk => {
+                 fileBytes += chunk.byteLength;
+                 extractedBytes += chunk.byteLength;
+                 if (fileBytes > 4 * 1024 * 1024 || extractedBytes > 100 * 1024 * 1024) {
+                   stream.pause(); reject(new Error('Giới hạn 4 MB mỗi ảnh và 100 MB ảnh giải nén.')); return;
+                 }
+                 chunks.push(chunk);
+               }).on('error', reject).on('end', () => resolve()).resume();
+             });
+             const blob = new Blob(chunks as BlobPart[], { type: lowerName.endsWith('.png') ? 'image/png' : lowerName.endsWith('.webp') ? 'image/webp' : lowerName.endsWith('.gif') ? 'image/gif' : 'image/jpeg' });
              const shortName = filename.split('/').pop() || filename;
              extractedImages.push({
                 name: shortName,
@@ -150,9 +146,9 @@ export default function DriveDownloaderPage() {
 
       setImages(extractedImages);
       setGlobalMessage(`Đã tìm thấy ${extractedImages.length} ảnh trong file Zip.`);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setGlobalMessage(`Lỗi đọc file zip: ${err.message}`);
+      setGlobalMessage(`Lỗi đọc file zip: ${errorMessage(err)}`);
     }
   };
 
@@ -185,22 +181,22 @@ export default function DriveDownloaderPage() {
         formData.append('filename', img.name);
         formData.append('siteConfig', JSON.stringify(siteConfig));
 
-        const res = await fetch('/api/wp/upload-media', {
+        const res = await apiFetch('/api/wp/upload-media', {
           method: 'POST',
           body: formData,
         });
 
         const data = await res.json();
         if (res.ok && data.success) {
-          setImages(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'success', message: 'Tải lên thành công' } : item));
+          setImages(prev => prev.map((item, idx) => idx === i ? { ...item, blob: new Blob(), status: 'success', message: 'Tải lên thành công' } : item));
           successCount++;
         } else {
           setImages(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: data.message || 'Lỗi từ server' } : item));
           errorCount++;
         }
 
-      } catch (err: any) {
-        setImages(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: err.message } : item));
+      } catch (err) {
+        setImages(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: errorMessage(err) } : item));
         errorCount++;
       }
 
@@ -236,10 +232,12 @@ export default function DriveDownloaderPage() {
     setDownloadingZip(true);
 
     try {
-      const apiKeyToUse = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+      const apiKeyToUse = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
       if (!apiKeyToUse) throw new Error("Chưa cấu hình API Key trong hệ thống.");
 
+      const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
+      let totalBytes = 0;
       let totalDownloaded = 0;
 
       for (let i = 0; i < validUrls.length; i++) {
@@ -252,11 +250,17 @@ export default function DriveDownloaderPage() {
         try {
           // 1. Get file list
           const query = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
-          const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&key=${apiKeyToUse}&fields=files(id,name,mimeType)`;
-          const listRes = await fetch(listUrl);
-          if (!listRes.ok) throw new Error(`Google API Lỗi: ${listRes.statusText}`);
-          const listData = await listRes.json();
-          const files = listData.files || [];
+          const files: { id: string; name: string; mimeType: string; size?: string }[] = [];
+          let pageToken = '';
+          do {
+            const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&key=${apiKeyToUse}&pageSize=100&fields=nextPageToken,files(id,name,mimeType,size)&pageToken=${encodeURIComponent(pageToken)}`;
+            const listRes = await fetch(listUrl, { signal: AbortSignal.timeout(30_000) });
+            if (!listRes.ok) throw new Error(`Google API Lỗi: ${listRes.status}`);
+            const listData = await listRes.json();
+            files.push(...(listData.files || []));
+            if (files.length > 200) throw new Error('Mỗi thư mục tối đa 200 ảnh.');
+            pageToken = listData.nextPageToken || '';
+          } while (pageToken);
 
           if (files.length === 0) {
             setDriveResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: 'Không có ảnh nào trong thư mục' } : item));
@@ -272,7 +276,8 @@ export default function DriveDownloaderPage() {
             
             try {
               const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKeyToUse}`;
-              const dlRes = await fetch(downloadUrl);
+              if (totalDownloaded >= 200 || Number(file.size || 0) + totalBytes > 100 * 1024 * 1024) throw new Error('Giới hạn 200 ảnh / 100 MB mỗi file ZIP.');
+              const dlRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(45_000) });
               if (!dlRes.ok) throw new Error('Download failed');
               const blob = await dlRes.blob();
               let filename = file.name || `${file.id}.jpg`;
@@ -287,6 +292,8 @@ export default function DriveDownloaderPage() {
                 }
               }
 
+              totalBytes += blob.size;
+              if (totalBytes > 100 * 1024 * 1024) throw new Error('Ảnh vượt giới hạn 100 MB.');
               zip.file(filename, blob);
               folderDownloaded++;
               totalDownloaded++;
@@ -295,9 +302,9 @@ export default function DriveDownloaderPage() {
             }
           }
 
-          setDriveResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'success', message: `Đã tải ${folderDownloaded} ảnh` } : item));
-        } catch (err: any) {
-           setDriveResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: err.message } : item));
+          setDriveResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: folderDownloaded === files.length ? 'success' : 'error', message: `Đã tải ${folderDownloaded}/${files.length} ảnh${folderDownloaded < files.length ? ' — có ảnh lỗi hoặc vượt giới hạn' : ''}` } : item));
+        } catch (err) {
+           setDriveResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', message: errorMessage(err) } : item));
         }
       }
 
@@ -317,8 +324,8 @@ export default function DriveDownloaderPage() {
         setGlobalMessage('Lỗi: Không tải được ảnh nào.');
       }
 
-    } catch (err: any) {
-      setGlobalMessage(`Lỗi kết nối: ${err.message}`);
+    } catch (err) {
+      setGlobalMessage(`Lỗi kết nối: ${errorMessage(err)}`);
     } finally {
       setDownloadingZip(false);
     }
@@ -326,6 +333,7 @@ export default function DriveDownloaderPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-8 pt-10">
+      {projectsError && <p role="alert" className="mb-4 text-sm text-red-500">Không tải được dự án: {projectsError}</p>}
       <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <FolderSync className="text-blue-400" />
@@ -424,12 +432,14 @@ export default function DriveDownloaderPage() {
               <input 
                 type="file" 
                 accept=".zip" 
-                ref={fileInputRef} 
+                ref={fileInputRef}
+                disabled={loadingType !== null}
                 onChange={handleFileChange} 
                 className="hidden" 
               />
               <button 
                  onClick={() => fileInputRef.current?.click()}
+                 disabled={loadingType !== null}
                  className="w-full border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-violet-500 dark:hover:border-violet-500 rounded-xl p-10 flex flex-col items-center justify-center gap-4 transition-colors text-gray-500 hover:text-violet-500 bg-gray-50 dark:bg-white/5 hover:bg-violet-50 dark:hover:bg-violet-900/10"
               >
                  <FileArchive size={48} className="opacity-70" />
@@ -518,7 +528,7 @@ export default function DriveDownloaderPage() {
                 Danh Sách Link Thư Mục Google Drive
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                Mỗi dòng 1 link thư mục. (Thư mục phải được set quyền "Anyone with the link can view").
+                Mỗi dòng 1 link thư mục. (Thư mục phải được set quyền &quot;Anyone with the link can view&quot;).
               </p>
               <textarea
                 value={driveUrlsText}

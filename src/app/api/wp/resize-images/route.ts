@@ -1,6 +1,11 @@
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 import dns from 'dns';
 import sharp from 'sharp';
+import type { WpPostMatch } from '@/lib/types';
 import * as cheerio from 'cheerio';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -15,11 +20,11 @@ interface SiteConfig {
   wp_password?: string;
   wp_login_path?: string;
   image_format?: string;
-  authHeaders?: any;
+  authHeaders?: Record<string, string>;
 }
 
-function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: any = {}) {
-  const headers = siteConfig.authHeaders ? { ...siteConfig.authHeaders } : {
+function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: Record<string, string> = {}) {
+  const headers: Record<string, string> = siteConfig.authHeaders ? { ...siteConfig.authHeaders } : {
     'Authorization': 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64')
   };
   return { ...headers, ...additionalHeaders, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Connection': 'close' };
@@ -86,22 +91,12 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
       const fallbackData = await fallbackRes.json();
 
       // Exact match trước
-      const exactMatch = fallbackData.find((p: any) => p.slug === slug);
+      const exactMatch = fallbackData.find((p: WpPostMatch) => p.slug === slug);
       if (exactMatch) {
         return { id: exactMatch.id, type: 'post' };
       }
       
-      // Link chứa slug
-      const linkMatch = fallbackData.find((p: any) => p.link?.includes(slug));
-      if (linkMatch) {
-        return { id: linkMatch.id, type: 'post' };
-      }
-
-      // Slug bắt đầu bằng input slug (trường hợp user nhập URL rút gọn)
-      const partialMatch = fallbackData.find((p: any) => p.slug?.startsWith(slug));
-      if (partialMatch) {
-        return { id: partialMatch.id, type: 'post' };
-      }
+      // Do not mutate a different post based on a partial slug match.
     }
 
     // Fallback 2: Thử tìm trong categories
@@ -116,15 +111,16 @@ async function getPostIdFromUrl(postUrl: string, siteConfig: SiteConfig): Promis
     }
 
     return null;
-  } catch (e: any) {
-    console.error('[Resize] Lỗi getPostIdFromUrl:', e.message);
+  } catch (e) {
+    console.error('[Resize] Lỗi getPostIdFromUrl:', errorMessage(e));
     return null;
   }
 }
 
 export async function POST(req: Request) {
+  return withApiAuth(req, async () => {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { siteConfig, postUrls, targetWidth, targetHeight, imageFormat, deleteOldMedia } = body;
 
     if (!siteConfig?.wp_url || !siteConfig?.wp_user || !siteConfig?.wp_app_pass) {
@@ -146,7 +142,7 @@ export async function POST(req: Request) {
 
     // Auth check
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    const headers: any = {
+    const headers: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Connection': 'close'
@@ -162,6 +158,9 @@ export async function POST(req: Request) {
 
     const tw = parseInt(targetWidth, 10);
     const th = parseInt(targetHeight, 10);
+    if (!Number.isInteger(tw) || !Number.isInteger(th) || tw < 1 || th < 1 || tw > 4096 || th > 4096 || postUrls.length > 50) {
+      return NextResponse.json({ success: false, message: 'Kích thước phải từ 1–4096 px; tối đa 50 URL mỗi request.' }, { status: 400 });
+    }
     const format = imageFormat || 'webp';
 
     const base = siteConfig.wp_url.replace(/\/$/, '');
@@ -228,7 +227,7 @@ export async function POST(req: Request) {
                 const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
 
                 // Resize
-                let pipeline = sharp(imgBuffer).resize(tw, th, { fit: 'cover', position: 'center' });
+                let pipeline = sharp(imgBuffer, { limitInputPixels: 40_000_000 }).resize(tw, th, { fit: 'cover', position: 'center' });
                 let contentType: string;
                 let ext: string;
                 if (format === 'jpeg' || format === 'jpg') {
@@ -251,7 +250,7 @@ export async function POST(req: Request) {
                     'Content-Type': contentType,
                     'Content-Disposition': `attachment; filename="${newFilename}"`
                   }),
-                  body: resizedBuffer as any
+                  body: new Uint8Array(resizedBuffer)
                 });
                 if (!uploadRes.ok) continue;
                 const newMedia = await uploadRes.json();
@@ -279,15 +278,16 @@ export async function POST(req: Request) {
             }
 
             if (srcResizedCount > 0) {
-              const updateBody: any = isCategory
+              const updateBody: Record<string, unknown> = isCategory
                 ? { description: updatedContent }
                 : { content: updatedContent };
               
-              await fetch(`${base}/wp-json/wp/v2/${endpoint}/${postInfo.id}`, {
+              const updateRes = await fetch(`${base}/wp-json/wp/v2/${endpoint}/${postInfo.id}`, {
                 method: 'POST',
                 headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(updateBody)
               });
+              if (!updateRes.ok) throw new Error(`Không lưu được bài viết (HTTP ${updateRes.status}). Ảnh gốc vẫn được giữ lại.`);
             }
 
             results.push({
@@ -325,7 +325,7 @@ export async function POST(req: Request) {
             if (!imgRes.ok) continue;
             const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-            let pipeline = sharp(imgBuffer).resize(tw, th, { fit: 'cover', position: 'center' });
+            let pipeline = sharp(imgBuffer, { limitInputPixels: 40_000_000 }).resize(tw, th, { fit: 'cover', position: 'center' });
 
             let contentType: string;
             let ext: string;
@@ -343,25 +343,19 @@ export async function POST(req: Request) {
               ext = 'webp';
             }
 
-            const resizedBuffer = await pipeline.toBuffer();
-            const resizedMeta = await sharp(resizedBuffer).metadata();
+            const { data: resizedBuffer, info: resizedMeta } = await pipeline.toBuffer({ resolveWithObject: true });
 
             const oldSlug = mediaData.slug || `image-${mediaId}`;
             const newFilename = `${oldSlug.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, '')}.${ext}`;
 
-            let uploadRes;
-            for (let attempt = 1; attempt <= 3; attempt++) {
-              uploadRes = await fetch(`${base}/wp-json/wp/v2/media`, {
-                method: 'POST',
-                headers: getApiHeaders(siteConfig, {
-                  'Content-Type': contentType,
-                  'Content-Disposition': `attachment; filename="${newFilename}"`
-                }),
-                body: resizedBuffer as any
-              });
-              if (uploadRes.ok) break;
-              if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
-            }
+            const uploadRes = await fetch(`${base}/wp-json/wp/v2/media`, {
+              method: 'POST',
+              headers: getApiHeaders(siteConfig, {
+                'Content-Type': contentType,
+                'Content-Disposition': `attachment; filename="${newFilename}"`
+              }),
+              body: new Uint8Array(resizedBuffer)
+            });
 
             if (!uploadRes || !uploadRes.ok) continue;
             const newMedia = await uploadRes.json();
@@ -396,7 +390,9 @@ export async function POST(req: Request) {
         }
 
         let thumbMapping: { newId: number, newUrl: string } | null = null;
-        if (featuredMediaId && !isCategory) {
+        if (featuredMediaId && idMapping[featuredMediaId]) {
+          thumbMapping = { newId: idMapping[featuredMediaId].newId, newUrl: idMapping[featuredMediaId].newUrl };
+        } else if (featuredMediaId && !isCategory) {
           try {
             const mediaRes = await fetch(`${base}/wp-json/wp/v2/media/${featuredMediaId}?context=edit&_fields=id,source_url,alt_text,title,caption,description,slug`, {
               headers: getApiHeaders(siteConfig)
@@ -408,7 +404,7 @@ export async function POST(req: Request) {
                 const imgRes = await fetch(sourceUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                 if (imgRes.ok) {
                   const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-                  let pipeline = sharp(imgBuffer).resize(tw, th, { fit: 'cover', position: 'center' });
+                  let pipeline = sharp(imgBuffer, { limitInputPixels: 40_000_000 }).resize(tw, th, { fit: 'cover', position: 'center' });
                   let contentType: string;
                   let ext: string;
                   if (format === 'jpeg' || format === 'jpg') { pipeline = pipeline.jpeg({ quality: 80 }); contentType = 'image/jpeg'; ext = 'jpg'; }
@@ -419,16 +415,11 @@ export async function POST(req: Request) {
                   const oldSlug = mediaData.slug || `image-${featuredMediaId}`;
                   const thumbFilename = `${oldSlug.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, '')}.${ext}`;
 
-                  let uploadRes;
-                  for (let attempt = 1; attempt <= 3; attempt++) {
-                    uploadRes = await fetch(`${base}/wp-json/wp/v2/media`, {
-                      method: 'POST',
-                      headers: getApiHeaders(siteConfig, { 'Content-Type': contentType, 'Content-Disposition': `attachment; filename="${thumbFilename}"` }),
-                      body: resizedBuffer as any
-                    });
-                    if (uploadRes.ok) break;
-                    if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
-                  }
+                  const uploadRes = await fetch(`${base}/wp-json/wp/v2/media`, {
+                    method: 'POST',
+                    headers: getApiHeaders(siteConfig, { 'Content-Type': contentType, 'Content-Disposition': `attachment; filename="${thumbFilename}"` }),
+                    body: new Uint8Array(resizedBuffer)
+                  });
 
                   if (uploadRes && uploadRes.ok) {
                     const newMedia = await uploadRes.json();
@@ -452,15 +443,6 @@ export async function POST(req: Request) {
             }
           } catch (thumbErr) {
             console.error(`[Resize] Lỗi xử lý Thumb ${featuredMediaId}:`, thumbErr);
-          }
-        }
-
-        if (mediaToDelete.length > 0) {
-          for (const delId of mediaToDelete) {
-            await fetch(`${base}/wp-json/wp/v2/media/${delId}?force=true`, {
-              method: 'DELETE',
-              headers: getApiHeaders(siteConfig)
-            }).catch(() => {});
           }
         }
 
@@ -494,26 +476,35 @@ export async function POST(req: Request) {
           let newFeaturedMedia = featuredMediaId;
           if (thumbMapping) newFeaturedMedia = thumbMapping.newId;
 
-          const updateBody: any = isCategory
+          const updateBody: Record<string, unknown> = isCategory
             ? { description: updatedContent }
             : { content: updatedContent, featured_media: newFeaturedMedia };
 
-          await fetch(`${base}/wp-json/wp/v2/${endpoint}/${postInfo.id}`, {
+          const updateRes = await fetch(`${base}/wp-json/wp/v2/${endpoint}/${postInfo.id}`, {
             method: 'POST',
             headers: getApiHeaders(siteConfig, { 'Content-Type': 'application/json' }),
             body: JSON.stringify(updateBody)
           });
+          if (!updateRes.ok) throw new Error(`Không lưu được bài viết (HTTP ${updateRes.status}). Ảnh gốc vẫn được giữ lại.`);
+
+          // Destructive cleanup must follow a confirmed successful update.
+          for (const delId of new Set(mediaToDelete)) {
+            const deleted = await fetch(`${base}/wp-json/wp/v2/media/${delId}?force=true`, {
+              method: 'DELETE', headers: getApiHeaders(siteConfig)
+            });
+            if (!deleted.ok) throw new Error(`Bài đã cập nhật, nhưng chưa xóa được ảnh cũ #${delId}.`);
+          }
         }
 
         results.push({
           postUrl: trimmedUrl,
-          status: 'success',
+          status: resizedCount > 0 ? 'success' : 'error',
           message: `Resize thành công ${resizedCount}/${uniqueMediaIds.length} ảnh → ${tw}x${th}.`,
           resizedCount
         });
 
-      } catch (e: any) {
-        results.push({ postUrl: trimmedUrl, status: 'error', message: e.message });
+      } catch (e) {
+        results.push({ postUrl: trimmedUrl, status: 'error', message: errorMessage(e) });
       }
 
       await new Promise(r => setTimeout(r, 2000));
@@ -528,8 +519,9 @@ export async function POST(req: Request) {
       results
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/wp/resize-images Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

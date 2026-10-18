@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Puzzle, ArrowRight, FileText, Image as ImageIcon, Scaling } from 'lucide-react';
+import { Puzzle, ArrowRight, FileText, Image as ImageIcon, Scaling, ArrowLeftRight } from 'lucide-react';
 
 export default function ToolsPage() {
   const tools = [
@@ -26,6 +26,14 @@ export default function ToolsPage() {
       desc: 'Tải hàng loạt ảnh từ link Google Drive về thành 1 file Zip, hoặc giải nén file Zip đẩy tự động lên thư viện WordPress.',
       icon: <Puzzle className="text-blue-400" size={24} />,
       link: '/dashboard/tools/drive-downloader',
+      status: 'Sẵn sàng'
+    },
+    {
+      id: 'swap-type',
+      name: 'Swap Post Type',
+      desc: 'Chuyển đổi loại bài: Post ↔ Page ↔ Category ↔ News. Tự động xử lý thumbnail khi chuyển từ Category sang Post/Page. Bài gốc bị xoá sau khi swap.',
+      icon: <ArrowLeftRight className="text-orange-400" size={24} />,
+      link: '/dashboard/tools/swap-type',
       status: 'Sẵn sàng'
     },
     {

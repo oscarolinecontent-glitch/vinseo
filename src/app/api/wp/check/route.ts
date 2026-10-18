@@ -1,3 +1,7 @@
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 import dns from 'dns';
 
@@ -6,8 +10,9 @@ dns.setDefaultResultOrder('ipv4first');
 import { getWpAdminSession } from '@/lib/wpAuth';
 
 export async function POST(req: Request) {
+  return withApiAuth(req, async () => {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { siteConfig } = body; 
 
     if (!siteConfig || !siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
@@ -21,7 +26,7 @@ export async function POST(req: Request) {
     siteConfig.wp_url = urlToUse; // normalize trước khi dùng trong getWpAdminSession
 
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    const headers: any = {
+    const headers: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
@@ -41,7 +46,7 @@ export async function POST(req: Request) {
       console.log('checkConnection: Basic Auth failed, trying Cookie fallback...');
       const session = await getWpAdminSession(siteConfig);
       if (session) {
-        const cookieHeaders: any = {
+        const cookieHeaders: Record<string, string> = {
           'Cookie': session.cookieStr,
           'X-WP-Nonce': session.nonce,
           'Content-Type': 'application/json',
@@ -53,7 +58,7 @@ export async function POST(req: Request) {
         // Thử các endpoint theo thứ tự quyền hạn giảm dần
         // /users/me yêu cầu list_users → bị chặn với siteeditor/editor role
         const candidateEndpoints = [
-          { url: `${base}/wp-json/wp/v2/users/me`, getName: (d: any) => d.name },
+          { url: `${base}/wp-json/wp/v2/users/me`, getName: (d: { name: string }) => d.name },
           { url: `${base}/wp-json/wp/v2/posts?per_page=1&status=any`, getName: () => siteConfig.wp_user },
           { url: `${base}/wp-json/wp/v2/media?per_page=1`, getName: () => siteConfig.wp_user },
           { url: `${base}/wp-json/wp/v2/types`, getName: () => siteConfig.wp_user },
@@ -93,7 +98,7 @@ export async function POST(req: Request) {
           user: data.name,
           usingCookieAuth: false
         });
-      } catch (parseError) {
+      } catch {
         if (responseText.includes('aes.js')) {
           return NextResponse.json({ 
             success: false, 
@@ -111,14 +116,15 @@ export async function POST(req: Request) {
       try {
         const err = JSON.parse(await response.text());
         errorMessage = err.message || errorMessage;
-      } catch (e) {
+      } catch {
         errorMessage = `Lỗi kết nối (Mã ${response.status}). Cả Basic Auth và Session Login đều thất bại, bị Firewall chặn hoàn toàn.`;
       }
       return NextResponse.json({ success: false, message: errorMessage }, { status: response.status });
     }
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/wp/check Unhandled Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

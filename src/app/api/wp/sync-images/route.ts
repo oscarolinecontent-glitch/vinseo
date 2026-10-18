@@ -1,3 +1,7 @@
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
@@ -7,6 +11,7 @@ import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProce
 import { getWpAdminSession } from '@/lib/wpAuth';
 import { makeInternalLinksRelative } from '@/lib/wpHelper';
 import * as cheerio from 'cheerio';
+import { stripExistingImages, injectImagesIntoContent, type MediaInfo } from '@/lib/syncImages';
 
 export const maxDuration = 300;
 
@@ -16,7 +21,7 @@ export const maxDuration = 300;
 async function resolvePostId(
   wpPostUrl: string,
   siteBase: string,
-  headers: any
+  headers: Record<string, string>
 ): Promise<{ id: number; type: 'post' | 'page' } | null> {
   try {
     const pMatch = wpPostUrl.match(/[?&]p=(\d+)/);
@@ -56,7 +61,7 @@ async function getCurrentPostContent(
   postId: number,
   postType: 'post' | 'page',
   siteBase: string,
-  headers: any
+  headers: Record<string, string>
 ): Promise<{ content: string; featuredMediaId: number } | null> {
   try {
     const endpointStr = postType === 'page' ? 'pages' : 'posts';
@@ -74,165 +79,10 @@ async function getCurrentPostContent(
   }
 }
 
-type MediaInfo = { id: number; width?: number; height?: number };
-
-/**
- * Xóa tất cả ảnh hiện có trong WP content trước khi re-inject.
- * Hỗ trợ cả Gutenberg <figure> và Classic [caption] shortcode.
- * Mục đích: đảm bảo mỗi lần sync luôn chạy lại từ đầu đúng vị trí và đúng format.
- */
-function stripExistingImages(rawContent: string): string {
-  // 1. Xóa [caption]...[/caption] shortcodes (Classic Editor)
-  let stripped = rawContent.replace(/\[caption[^\]]*\][\s\S]*?\[\/caption\]/gi, '');
-
-  // 2. Dùng cheerio xóa các block HTML chứa ảnh
-  const $ = cheerio.load(stripped, { xmlMode: false });
-
-  // Xóa tất cả <figure> (Gutenberg wp-block-image)
-  $('figure').remove();
-
-  // Xóa <p> chỉ chứa img (không có text)
-  $('p').each((_, el) => {
-    const $el = $(el);
-    if ($el.find('img').length > 0 && $el.text().trim() === '') {
-      $el.remove();
-    }
-  });
-
-  // Xóa img còn sót
-  $('img').remove();
-
-  // Xóa <p> caption-like (căn giữa/italic ngắn) được publish cùng bài gốc
-  // Mục đích: không làm lệch pointer wpIdx khi inject
-  $('p').each((_, el) => {
-    const $el = $(el);
-    const style = ($el.attr('style') || '').toLowerCase();
-    const text = $el.text().trim();
-    const allInline = $el.children().length > 0 && $el.children().toArray().every((c: any) =>
-      ['i', 'em', 'b', 'strong', 'span', 'a', 'u'].includes(c.tagName?.toLowerCase())
-    );
-    const isEmpty = text.length === 0;
-    const isCaption = text.length > 0 && text.length < 200 &&
-      (style.includes('center') || (allInline && $el.find('i, em').length > 0));
-    if (isEmpty || isCaption) $el.remove();
-  });
-
-  return $('body').html() || stripped;
-}
-
-/**
- * Inject ảnh đã upload vào content hiện tại của WP.
- *
- * Case A - WP đã có <img>: thay src cũ → src WP mới theo thứ tự.
- * Case B - WP chưa có <img>: phân tích Docs HTML, detect chú thích ở sibling,
- *          output [caption] shortcode đúng cẩu Classic Editor.
- */
-function injectImagesIntoContent(
-  wpContent: string,
-  docsContent: string,
-  uploadedImageMap: Map<string, string>,      // oldGoogleSrc → newWpUrl
-  mediaInfoMap: Map<string, MediaInfo>        // newWpUrl → { id, width, height }
-): string {
-  const $wp = cheerio.load(wpContent, { xmlMode: false });
-  const $docs = cheerio.load(docsContent, { xmlMode: false });
-
-  // Helper: tạo block HTML đúng format WP
-  const makeBlock = (newSrc: string, captionText: string): string => {
-    const info = mediaInfoMap.get(newSrc);
-    if (info?.id) {
-      // Classic Editor [caption] shortcode format
-      const w = info.width || 800;
-      const hAttr = info.height ? ` height="${info.height}"` : '';
-      const capPart = captionText ? ` ${captionText}` : '';
-      return `[caption id="attachment_${info.id}" align="aligncenter" width="${w}"]` +
-             `<img class="size-full wp-image-${info.id}" src="${newSrc}" alt="${captionText}" width="${w}"${hAttr} />` +
-             `${capPart}[/caption]`;
-    }
-    // Fallback: Gutenberg block
-    const capHtml = captionText ? `<figcaption class="wp-element-caption">${captionText}</figcaption>` : '';
-    return `<figure class="wp-block-image size-full"><img src="${newSrc}" alt="${captionText}" />${capHtml}</figure>`;
-  };
-
-  const wpImgs = $wp('img').toArray();
-
-  // ── CASE A: WP đã có ảnh → thay src theo thứ tự ──
-  if (wpImgs.length > 0) {
-    const newSrcs = [...uploadedImageMap.values()];
-    wpImgs.forEach((el, idx) => {
-      if (newSrcs[idx]) {
-        $wp(el).attr('src', newSrcs[idx]);
-        $wp(el).removeAttr('srcset');
-      }
-    });
-    return $wp('body').html() || wpContent;
-  }
-
-  // ── CASE B: WP chưa có ảnh → chèn theo vị trí từ Docs ──
-  // Dùng pure string assembly thay vì cheerio DOM write
-  // để [caption] shortcodes không bị parser HTML của cheerio mangle.
-
-  const wpChildren = $wp('body').children().toArray();
-  const docsTopChildren = $docs('body').children().toArray();
-
-  // Xác định vị trí chèn: afterIdx là index trong wpChildren (−1 = trước tất cả)
-  const insertions: { afterIdx: number; block: string }[] = [];
-  let wpIdx = 0;
-
-  for (let i = 0; i < docsTopChildren.length; i++) {
-    const docsEl = docsTopChildren[i];
-    const $docsEl = $docs(docsEl);
-    const tag = (docsEl as any).tagName?.toLowerCase() || '';
-
-    let imgSrc: string | null = null;
-    let captionText = '';
-
-    if (tag === 'img') {
-      imgSrc = $docsEl.attr('src') || null;
-      captionText = $docsEl.attr('data-temp-caption') || '';
-    } else {
-      const inner = $docsEl.find('img').first();
-      if (inner.length > 0) {
-        imgSrc = inner.attr('src') || null;
-        captionText = inner.attr('data-temp-caption') || '';
-      }
-    }
-
-    if (imgSrc) {
-      if (uploadedImageMap.has(imgSrc)) {
-        const newSrc = uploadedImageMap.get(imgSrc)!;
-        insertions.push({ afterIdx: wpIdx - 1, block: makeBlock(newSrc, captionText) });
-      } else {
-        // Ảnh không upload được → skip
-      }
-      // KHÔNG tăng wpIdx vì ảnh sẽ thay thế element này
-    } else {
-      wpIdx++;
-    }
-  }
-
-  // Nhóm các block theo afterIdx
-  const insertionMap = new Map<number, string[]>();
-  for (const { afterIdx, block } of insertions) {
-    if (!insertionMap.has(afterIdx)) insertionMap.set(afterIdx, []);
-    insertionMap.get(afterIdx)!.push(block);
-  }
-
-  // Assembly thuần string: lấy outerHTML từng WP block + xen ảnh vào đúng chỗ
-  const parts: string[] = [...(insertionMap.get(-1) || [])]; // ảnh trước tất cả block
-  for (let i = 0; i < wpChildren.length; i++) {
-    const outerHtml = $wp.html($wp(wpChildren[i]));
-    if (outerHtml) parts.push(outerHtml);
-    for (const block of (insertionMap.get(i) || [])) {
-      parts.push(block);
-    }
-  }
-
-  return parts.join('\n');
-}
-
 export async function POST(request: Request) {
+  return withApiAuth(request, async () => {
   try {
-    const body = await request.json();
+    const body = await readJson(request);
     const { siteConfig, postData } = body;
 
     if (!siteConfig?.wp_url || !siteConfig?.wp_user || !siteConfig?.wp_app_pass) {
@@ -253,7 +103,7 @@ export async function POST(request: Request) {
     const siteBase = urlToUse.replace(/\/$/, '');
 
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    let headers: any = {
+    let headers: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
@@ -327,82 +177,29 @@ export async function POST(request: Request) {
 
     let imageProcessResult;
     if (postData.imageType === 'caption') {
-      imageProcessResult = await processImagesByCaption(docsContent, parseResult.title || '', siteConfig);
+      imageProcessResult = await processImagesByCaption(current.content, parseResult.title || '', siteConfig);
     } else {
       imageProcessResult = await processAndUploadImages(docsContent, thumbUrl, imageSlug, rawSlugText, siteConfig);
     }
 
-    // BƯỚC 5: Build map oldSrc → newWpUrl từ processed HTML
-    const $processed = cheerio.load(imageProcessResult.processedHtml, { xmlMode: false });
-    const $docs = cheerio.load(docsContent, { xmlMode: false });
-
-    const docsOriginalSrcs: string[] = [];
-    $docs('img').each((_, el) => {
-      const src = $docs(el).attr('src');
-      if (src) docsOriginalSrcs.push(src);
-    });
-
-    const processedSrcs: string[] = [];
-    $processed('img').each((_, el) => {
-      const src = $processed(el).attr('src');
-      if (src) processedSrcs.push(src);
-    });
-
-    const uploadedImageMap = new Map<string, string>();
-    docsOriginalSrcs.forEach((origSrc, idx) => {
-      if (processedSrcs[idx]) {
-        // Chỉ map nếu src mới khác src cũ (tức là đã upload thành công lên WP)
-        const isGoogleSrc = origSrc.includes('googleusercontent.com') || origSrc.includes('drive.google.com') || origSrc.includes('docs.google.com');
-        const isNewWpSrc = !processedSrcs[idx].includes('googleusercontent.com') && !processedSrcs[idx].includes('drive.google.com');
-        if (isNewWpSrc || !isGoogleSrc) {
-          uploadedImageMap.set(origSrc, processedSrcs[idx]);
-        }
-      }
-    });
-
-    // Nếu Docs có ảnh nhưng không upload được cái nào → báo lỗi rõ ràng
-    if (docsOriginalSrcs.length > 0 && uploadedImageMap.size === 0) {
-      return NextResponse.json({
-        success: false,
-        errorCode: 'UPLOAD_FAILED',
-        message: `Docs có ${docsOriginalSrcs.length} ảnh nhưng không upload được lên WP. Có thể do URL ảnh Google đã hết hạn hoặc bị chặn. Thử mở Docs, xóa và chèn lại ảnh rồi sync lại.`,
-      }, { status: 422 });
+    const uploadedImageMap = new Map(imageProcessResult.uploadedImages.map(image => [image.source, image.url]));
+    const mediaInfoMap = new Map<string, MediaInfo>(imageProcessResult.uploadedImages.map(image => [image.url, image]));
+    const captionMode = postData.imageType === 'caption';
+    // In caption mode update matching captions in existing WP content, preserving its text.
+    const injectedContent = captionMode
+      ? imageProcessResult.processedHtml
+      : uploadedImageMap.size
+        ? injectImagesIntoContent(stripExistingImages(current.content), docsContent, uploadedImageMap, mediaInfoMap)
+        : current.content;
+    const imagesInjected = captionMode
+      ? Math.max(0, cheerio.load(injectedContent)('img').length - cheerio.load(current.content)('img').length)
+      : uploadedImageMap.size;
+    if (!imagesInjected && !imageProcessResult.thumbnailId) {
+      return NextResponse.json({ success: false, message: 'Không tìm thấy ảnh phù hợp. Nội dung hiện tại được giữ nguyên.' }, { status: 422 });
     }
 
-    // BƯỚC 6: Fetch media info (id, width, height) cho mỗi ảnh đã upload
-    const mediaInfoMap = new Map<string, MediaInfo>();
-    await Promise.all([...uploadedImageMap.values()].map(async (wpUrl) => {
-      try {
-        const filename = wpUrl.split('/').pop() || '';
-        const slug = filename.replace(/\.[^.]+$/, ''); // bỏ extension
-        const res = await fetch(
-          `${siteBase}/wp-json/wp/v2/media?slug=${encodeURIComponent(slug)}&_fields=id,source_url,media_details`,
-          { headers }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            mediaInfoMap.set(wpUrl, {
-              id: data[0].id,
-              width: data[0].media_details?.width,
-              height: data[0].media_details?.height,
-            });
-          }
-        }
-      } catch {}
-    }));
-
-    // BƯỚC 7: Strip ảnh cũ (nếu có từ lần sync trước) rồi inject lại từ đầu
-    const strippedContent = stripExistingImages(current.content);
-    const injectedContent = injectImagesIntoContent(
-      strippedContent,
-      docsContent,
-      uploadedImageMap,
-      mediaInfoMap
-    );
-
     // BƯỚC 8: Update bài — CHỈ content và featured_media, không đổi title/excerpt/SEO
-    const updatePayload: any = {
+    const updatePayload: Record<string, unknown> = {
       content: injectedContent,
     };
 
@@ -437,12 +234,13 @@ export async function POST(request: Request) {
       wp_id: postId,
       postType,
       thumbnailUpdated,
-      imagesInjected: uploadedImageMap.size,
-      message: `Đã sync ${uploadedImageMap.size} ảnh vào bài #${postId}${thumbnailUpdated ? ' + thumbnail' : ''}`,
+      imagesInjected,
+      message: `Đã sync ${imagesInjected} ảnh vào bài #${postId}${thumbnailUpdated ? ' + thumbnail' : ''}`,
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/wp/sync-images Unhandled Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

@@ -43,19 +43,25 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.15; filter: blur(80px); }
-  50% { opacity: 0.6; filter: blur(120px); }
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.6; }
 }
 
 @keyframes pulse-glow-reverse {
-  0%, 100% { opacity: 0.6; filter: blur(120px); }
-  50% { opacity: 0.15; filter: blur(80px); }
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.15; }
 }
 
 .animate-glow-fly {
+  filter: blur(80px);
   animation: pulse-glow 6s ease-in-out infinite, fly-1 25s ease-in-out infinite;
 }
 
 .animate-glow-delayed {
+  filter: blur(80px);
   animation: pulse-glow-reverse 7s ease-in-out infinite, fly-2 30s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-fly, .animate-glow-delayed { animation: none; opacity: 0.2; }
 }

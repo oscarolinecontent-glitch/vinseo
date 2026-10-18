@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { AuthLoading } from '@/components/AuthLoading';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -11,11 +12,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.replace('/login');
     }
   }, [user, loading, router]);
 
-  if (loading) return null; // Hoặc loading spinner
+  if (loading) return <AuthLoading />;
 
   if (!user) return null; // Tránh nháy UI
 

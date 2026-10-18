@@ -1,3 +1,8 @@
+import type { SiteConfig } from '@/lib/types';
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 import dns from 'dns';
 
@@ -5,8 +10,7 @@ import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
-import { getWpAdminSession } from '@/lib/wpAuth';
-import { getWpAdminPath } from '@/lib/wpAuth';
+import { getWpAdminSession, getWpAdminPath } from '@/lib/wpAuth';
 import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
@@ -21,7 +25,7 @@ export const maxDuration = 300;
 async function resolvePostId(
   wpPostUrl: string,
   siteBase: string,
-  headers: any
+  headers: Record<string, string>
 ): Promise<{ id: number; type: 'post' | 'page' | 'category' } | null> {
   try {
     // Dạng 1: URL chứa ?p=ID hoặc ?page_id=ID
@@ -86,7 +90,7 @@ async function updateCategoryDescriptionViaAdmin(
   title: string,
   slug: string,
   descriptionHtml: string,
-  siteConfig: any
+  siteConfig: SiteConfig
 ): Promise<boolean> {
   const session = await getWpAdminSession(siteConfig);
   if (!session) {
@@ -170,7 +174,7 @@ async function updateRankMathViaAdminSession(
   desc: string,
   keyword: string,
   categoryId: string | number,
-  siteConfig: any
+  siteConfig: SiteConfig
 ) {
   const base = siteConfig.wp_url.replace(/\/$/, '');
   const rmBody = JSON.stringify({
@@ -188,7 +192,7 @@ async function updateRankMathViaAdminSession(
     // Cách 1: Dùng Admin Session (ưu tiên vì không bị hạn chế quyền)
     const session = await getWpAdminSession(siteConfig);
     if (session) {
-      const rmHeaders: any = {
+      const rmHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         'Cookie': session.cookieStr,
         'X-WP-Nonce': session.nonce,
@@ -204,7 +208,7 @@ async function updateRankMathViaAdminSession(
         if (urlObj.username && urlObj.password) {
           rmHeaders['Authorization'] = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
         }
-      } catch (e) { }
+      } catch { }
 
       const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
         method: 'POST',
@@ -219,7 +223,7 @@ async function updateRankMathViaAdminSession(
     // Cách 2: Fallback dùng Basic Auth (App Password)
 
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    const basicHeaders: any = {
+    const basicHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Basic ${credentials}`,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -239,8 +243,9 @@ async function updateRankMathViaAdminSession(
 }
 
 export async function POST(req: Request) {
+  return withApiAuth(req, async () => {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { siteConfig, postData } = body;
 
     // postData cần: gdoc_url, wp_post_url, keyword?, meta_desc?, imageType?
@@ -265,7 +270,7 @@ export async function POST(req: Request) {
     if (siteConfig.image_height) siteConfig.image_height = parseInt(siteConfig.image_height, 10) || undefined;
 
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
-    let headers: any = {
+    let headers: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
@@ -354,7 +359,7 @@ export async function POST(req: Request) {
         // Fallback: Cập nhật qua REST API (HTML có thể bị strip tùy cấu hình WP)
 
         const catUpdateEndpoint = `${siteBase}/wp-json/wp/v2/categories/${postId}`;
-        const catPayload: any = {
+        const catPayload: Record<string, unknown> = {
           description: imageProcessResult.processedHtml,
         };
         if (finalTitle) {
@@ -373,7 +378,7 @@ export async function POST(req: Request) {
           try {
             const err = JSON.parse(errText);
             errorMessage = err.message || errorMessage;
-          } catch (e) {
+          } catch {
             errorMessage = `Lỗi từ Server WP (Mã ${catUpdateRes.status})`;
           }
           return NextResponse.json({ success: false, message: `Lỗi cập nhật category: ${errorMessage}` }, { status: catUpdateRes.status });
@@ -421,7 +426,7 @@ export async function POST(req: Request) {
     }
 
     // BƯỚC 4: Cập nhật bài viết qua WP REST API (POST lên /{id})
-    const updatePayload: any = {
+    const updatePayload: Record<string, unknown> = {
       content: imageProcessResult.processedHtml,
     };
 
@@ -452,7 +457,7 @@ export async function POST(req: Request) {
       try {
         const err = JSON.parse(errText);
         errorMessage = err.message || errorMessage;
-      } catch (e) {
+      } catch {
         errorMessage = `Lỗi từ Server WP (Mã ${updateRes.status}). Máy chủ trả về HTML thay vì JSON.`;
       }
       return NextResponse.json({ success: false, message: errorMessage }, { status: updateRes.status });
@@ -486,8 +491,9 @@ export async function POST(req: Request) {
         : `Đã cập nhật bài viết #${postId} thành công (không tìm thấy thumbnail trong Docs — vui lòng thêm thủ công)`,
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/wp/update-post Unhandled Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

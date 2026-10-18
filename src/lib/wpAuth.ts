@@ -1,5 +1,10 @@
+import type { SiteConfig } from '@/lib/types';
+import { safeFetch as fetch } from './server/network';
 // Lưu cache session trong bộ nhớ của server để tránh spam wp-login.php liên tục gây lỗi 1006
-const sessionCache: Record<string, { cookieStr: string, nonce: string, timestamp: number }> = {};
+import { createHash } from 'node:crypto';
+import { requestContext } from './server/context';
+const sessionCache = new Map<string, { cookieStr: string; nonce: string; timestamp: number }>();
+const SESSION_TTL = 30 * 60 * 1000;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -19,7 +24,7 @@ export function getWpAdminPath(loginPath: string): string {
     if (loginPath.startsWith('http')) {
       pathOnly = new URL(loginPath).pathname;
     }
-  } catch (e) { }
+  } catch { }
 
   const idx = pathOnly.lastIndexOf('wp-login.php');
   if (idx > 0) {
@@ -50,7 +55,7 @@ async function attemptWpLogin(
   try {
     // ===================== BƯỚC 1: GET TRANG LOGIN =====================
     // Giả lập browser truy cập trang login để lấy cookies + form action + hidden fields
-    const getHeaders: any = {
+    const getHeaders: Record<string, string> = {
       'User-Agent': UA,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Connection': 'close',
@@ -95,6 +100,10 @@ async function attemptWpLogin(
       }
     }
 
+    if (new URL(formActionUrl).origin !== new URL(base).origin) {
+      throw new Error('Form đăng nhập chuyển sang website khác.');
+    }
+
     // Tìm tất cả hidden fields trong form (nonce, security tokens...)
     const hiddenFields: Record<string, string> = {};
     const hiddenRegex = /<input[^>]*type=["']hidden["'][^>]*>/gi;
@@ -111,19 +120,19 @@ async function attemptWpLogin(
 
     // ===================== BƯỚC 3: POST FORM LOGIN =====================
     const loginForm = new URLSearchParams({
+      ...hiddenFields,
       log: wpUser,
       pwd: wpPassword,
       'wp-submit': 'Log In',
       redirect_to: `${base}${adminBase}/`,
       testcookie: '1',
-      ...hiddenFields, // Include any hidden fields from the form (nonces, security tokens)
     });
 
     // Gộp cookies từ GET response + test cookie
     const postCookies = [...getCookies, 'wordpress_test_cookie=WP+Cookie+check'];
     const cookieHeader = postCookies.join('; ');
 
-    const postHeaders: any = {
+    const postHeaders: Record<string, string> = {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': cookieHeader,
       'User-Agent': UA,
@@ -143,7 +152,7 @@ async function attemptWpLogin(
     });
 
     // Thu thập cookies từ POST response
-    let allCookieParts: string[] = [...getCookies]; // Giữ lại cookies từ GET
+    const allCookieParts: string[] = [...getCookies]; // Giữ lại cookies từ GET
     const postRawCookies = loginRes.headers.getSetCookie?.() ?? [];
     if (postRawCookies.length > 0) {
       allCookieParts.push(...postRawCookies.map((c: string) => c.split(';')[0]));
@@ -170,6 +179,7 @@ async function attemptWpLogin(
       // Nếu có redirect, thử follow nó để lấy cookies (một số WP config redirect qua nhiều bước)
       if (location && loginRes.status >= 300 && loginRes.status < 400) {
         const redirectUrl = location.startsWith('http') ? location : `${base}${location}`;
+        if (new URL(redirectUrl).origin !== new URL(base).origin) return null;
         const redirectRes = await fetch(redirectUrl, {
           method: 'GET',
           headers: {
@@ -217,7 +227,7 @@ async function fetchNonce(
   base: string,
   adminBase: string
 ): Promise<{ cookieStr: string; nonce: string } | null> {
-  const editHeaders: any = {
+  const editHeaders: Record<string, string> = {
     'Cookie': cookieStr,
     'User-Agent': UA,
     'Connection': 'close',
@@ -252,7 +262,7 @@ async function fetchNonce(
     if (ajaxNonceRes.ok && /^[a-f0-9]{10}$/i.test(ajaxText.trim())) {
       return { cookieStr, nonce: ajaxText.trim() };
     }
-  } catch (e) { }
+  } catch { }
 
   // Fallback 2: thử /wp-admin/profile.php
   try {
@@ -266,13 +276,13 @@ async function fetchNonce(
     if (profileNonce) {
       return { cookieStr, nonce: profileNonce[1] };
     }
-  } catch (e) { }
+  } catch { }
 
   console.error('wpAuth: Nonce not found anywhere.');
   return null;
 }
 
-export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: string, nonce: string } | null> {
+export async function getWpAdminSession(siteConfig: SiteConfig): Promise<{ cookieStr: string, nonce: string } | null> {
   const base = siteConfig.wp_url.replace(/\/$/, '');
   const loginPass = siteConfig.wp_password || siteConfig.wp_app_pass;
 
@@ -281,12 +291,13 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     return null;
   }
 
-  // Khóa cache dựa trên url và username
-  const cacheKey = `${base}_${siteConfig.wp_user}`;
+  const uid = requestContext.getStore()?.uid;
+  if (!uid) throw new Error('Thiếu phiên đăng nhập ứng dụng.');
+  const cacheKey = createHash('sha256').update(JSON.stringify([uid, base, siteConfig.wp_user, loginPass, siteConfig.wp_app_pass, siteConfig.wp_login_path])).digest('hex');
   const now = Date.now();
-  if (sessionCache[cacheKey] && (now - sessionCache[cacheKey].timestamp < 2 * 60 * 60 * 1000)) {
-    return { cookieStr: sessionCache[cacheKey].cookieStr, nonce: sessionCache[cacheKey].nonce };
-  }
+  for (const [key, value] of sessionCache) if (now - value.timestamp >= SESSION_TTL) sessionCache.delete(key);
+  const cached = sessionCache.get(cacheKey);
+  if (cached) return { cookieStr: cached.cookieStr, nonce: cached.nonce };
 
   try {
     const loginPath = siteConfig.wp_login_path || '/wp-login.php';
@@ -298,13 +309,14 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     let basicAuthHeader = '';
     try {
       const urlObj = new URL(loginUrl);
+      if (urlObj.origin !== new URL(base).origin) throw new Error('URL đăng nhập phải thuộc cùng website WordPress.');
       if (urlObj.username && urlObj.password) {
         basicAuthHeader = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
         urlObj.username = '';
         urlObj.password = '';
         loginUrl = urlObj.toString();
       }
-    } catch (e) { }
+    } catch { return null; }
 
     // Lần 1: Thử login qua URL cấu hình (VD: /web_auth/, /hidden-login/, /wp-login.php)
     let result = await attemptWpLogin(loginUrl, siteConfig.wp_user, loginPass, basicAuthHeader, base, adminBase);
@@ -324,10 +336,11 @@ export async function getWpAdminSession(siteConfig: any): Promise<{ cookieStr: s
     }
 
     // Lưu vào cache
-    sessionCache[cacheKey] = {
+    if (sessionCache.size >= 100) sessionCache.delete(sessionCache.keys().next().value!);
+    sessionCache.set(cacheKey, {
       ...result,
       timestamp: Date.now()
-    };
+    });
 
     return result;
   } catch (e) {

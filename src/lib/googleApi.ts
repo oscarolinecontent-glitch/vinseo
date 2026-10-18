@@ -1,4 +1,8 @@
+import { errorMessage } from './types.ts';
+import { safeFetch as fetch } from './server/network.ts';
+import { removeCheckSpinImages } from './googleDocImages.ts';
 import * as cheerio from 'cheerio';
+import type { AnyNode, Element } from 'domhandler';
 
 // Hàm bóc tách nội dung từ link Google Docs (yêu cầu Doc được set quyền "Anyone with the link can view")
 export const parseGoogleDoc = async (docUrl: string) => {
@@ -41,14 +45,14 @@ export const parseGoogleDoc = async (docUrl: string) => {
                 // Lỗi khác (404...) thì báo ngay
                 throw new Error(`Lỗi khi tải Google Doc: HTTP ${response.status}`);
             }
-        } catch (networkErr: any) {
+        } catch (networkErr) {
             // Lỗi mạng đứt kết nối hoặc DNS
-            if (networkErr.message.includes("Không có quyền truy cập") || networkErr.message.includes("Lỗi khi tải Google Doc")) {
+            if (errorMessage(networkErr).includes("Không có quyền truy cập") || errorMessage(networkErr).includes("Lỗi khi tải Google Doc")) {
                 throw networkErr; // Re-throw các lỗi logic đã bắt ở trên
             }
             retries--;
             if (retries === 0) {
-                throw new Error(`Lỗi đứt mạng khi kết nối tới Google Docs: ${networkErr.message}. Vui lòng kiểm tra lại mạng.`);
+                throw new Error(`Lỗi đứt mạng khi kết nối tới Google Docs: ${errorMessage(networkErr)}. Vui lòng kiểm tra lại mạng.`);
             }
             await new Promise(res => setTimeout(res, 2000));
         }
@@ -119,7 +123,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
     $('span, p, h1, h2, h3, h4, h5, h6, td, th').each((_, el) => {
         const $el = $(el);
         const className = $el.attr('class') || '';
-        const tag = (el as any).tagName?.toLowerCase() || '';
+        const tag = (el as Element).tagName?.toLowerCase() || '';
 
         const inlineStyle = ($el.attr('style') || '').toLowerCase().replace(/\s+/g, '');
         
@@ -187,7 +191,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
     let driveLink = "";
     let metaDesc = "";
     let pageTitle = "";
-    const contentNodes: any[] = [];
+    const contentNodes: AnyNode[] = [];
     let currentIndex = 0;
 
     // 1. Tìm Drive Link (Nếu có)
@@ -213,7 +217,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
     let titleIndex = -1;
     for (let i = currentIndex; i < bodyChildren.length; i++) {
         const el = bodyChildren[i];
-        const tag = (el as any).tagName?.toLowerCase() || '';
+        const tag = (el as Element).tagName?.toLowerCase() || '';
         const text = $(el).text().trim();
         
         // Tìm thẻ H1, H2, H3... đầu tiên có chứa chữ
@@ -298,7 +302,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
             
             const $imgDirectChildOfBlock = $img.parent().is($blockContainer) 
                 ? $img 
-                : $img.parentsUntil($blockContainer[0] as any).last();
+                : $img.parentsUntil($blockContainer[0] as Element).last();
             
             if (isShort && hasNoEndPunct) {
                 $img.attr('data-temp-caption', parentTextAfterImg);
@@ -314,7 +318,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
             // CASE 2: Block chỉ có mỗi ảnh, tìm caption ở các thẻ kế tiếp trong danh sách phẳng
             let $captionNode = null;
             let captionText = '';
-            let emptyNodesToRemove: any[] = [];
+            const emptyNodesToRemove: cheerio.Cheerio<Element>[] = [];
             
             if (imgBlockIndex !== -1) {
                 // Duyệt tối đa 5 block tiếp theo
@@ -323,7 +327,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
                     if (!nextBlock) break;
                     
                     const $currNode = $content(nextBlock);
-                    const nodeTag = (nextBlock as any).tagName?.toLowerCase() || '';
+                    const nodeTag = nextBlock.tagName?.toLowerCase() || '';
                     
                     if (/^h[1-6]$/.test(nodeTag) || $currNode.find('img').length > 0) {
                         break; // Gặp heading hoặc ảnh khác thì dừng
@@ -359,7 +363,7 @@ export const parseGoogleDoc = async (docUrl: string) => {
 
     // Sửa các đường dẫn Google Redirect (Google hay gắn url?q=...)
     $content('a').each((_, el) => {
-        let href = $content(el).attr('href');
+        const href = $content(el).attr('href');
         if (href && href.includes('google.com/url?q=')) {
             const urlMatch = href.match(/url\?q=([^&]+)/);
             if (urlMatch && urlMatch[1]) {
@@ -367,9 +371,6 @@ export const parseGoogleDoc = async (docUrl: string) => {
             }
         }
     });
-
-    // Xóa ảnh check content ở đoạn cuối cùng (ảnh cuối cùng của bài)
-    $content('img').last().remove();
 
     // Xóa toàn bộ class, id, style inline rác của Google
     $content('*').removeAttr('class').removeAttr('id').removeAttr('style');
@@ -400,38 +401,10 @@ export const parseGoogleDoc = async (docUrl: string) => {
         }
     });
 
-    // --- TÍNH NĂNG MỚI: XÓA ẢNH CHECK ĐẠO VĂN Ở CUỐI BÀI ---
-    // Tìm đoạn văn bản (text) cuối cùng của bài viết
-    const textNodes = $content('p, h1, h2, h3, h4, h5, h6, li').filter((_, el) => {
-        const clone = $content(el).clone();
-        clone.find('img').remove(); // Bỏ qua ảnh để kiểm tra thuần text
-        return clone.text().trim().length > 0;
-    });
+    // Chủ ý nghiệp vụ: ảnh check spin ở cuối bài không được upload lên WP.
+    removeCheckSpinImages($content);
 
-    if (textNodes.length > 0) {
-        const lastTextNode = textNodes.last()[0];
-        let isAfterLastText = false;
-
-        $content('*').each((_, el) => {
-            if (el === lastTextNode) {
-                isAfterLastText = true;
-            } else if (isAfterLastText) {
-                // Kiểm tra xem thẻ hiện tại có nằm trong lastTextNode không
-                if ($content(el).closest(lastTextNode).length === 0) {
-                    if ((el as any).tagName && (el as any).tagName.toLowerCase() === 'img') {
-                        const $parentP = $content(el).closest('p');
-                        $content(el).remove();
-                        // Xóa luôn thẻ p bọc ngoài nếu nó rỗng sau khi xóa ảnh
-                        if ($parentP.length > 0 && $parentP.text().trim() === '' && $parentP.find('img').length === 0) {
-                            $parentP.remove();
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    let cleanContent = $content('div').html() || '';
+    const cleanContent = $content('div').html() || '';
 
     return {
       success: true,
@@ -442,10 +415,10 @@ export const parseGoogleDoc = async (docUrl: string) => {
       content: cleanContent
     };
 
-  } catch (error: any) {
+  } catch (error) {
     return {
       success: false,
-      message: error.message
+      message: errorMessage(error)
     };
   }
 };

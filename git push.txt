@@ -1,3 +1,0 @@
-git add .
-git commit -m "tạo các fallback với các tài khoản không tạo được wp password"
-git push

@@ -1,59 +1,50 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useProjects } from '@/hooks/useProjects';
+import { errorMessage } from '@/lib/types';
 import { Target, Plus, Trash2, Globe } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebaseDb';
+import { collection, addDoc, deleteDoc, doc } from 'firebase/firestore/lite';
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<any[]>([]);
+  const { projects, reload, error: projectsError } = useProjects();
+  const [saveError, setSaveError] = useState('');
   const [newProject, setNewProject] = useState({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
-  const fetchProjects = async () => {
-    if (!user) return;
-    const q = collection(db, 'users', user.uid, 'projects');
-    const querySnapshot = await getDocs(q);
-    const loaded: any[] = [];
-    querySnapshot.forEach((doc) => {
-      loaded.push({ id: doc.id, ...doc.data() });
-    });
-    setProjects(loaded);
-  };
-
-  useEffect(() => {
-    fetchProjects();
-  }, [user]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProject.name || !newProject.url || !user) return;
     
     setLoading(true);
+    setSaveError('');
     try {
       await addDoc(collection(db, 'users', user.uid, 'projects'), newProject);
-      await fetchProjects();
+      reload();
       setNewProject({ name: '', url: '', wp_user: '', wp_app_pass: '', wp_password: '', wp_login_path: '', image_format: 'webp' });
     } catch (error) {
-      console.error("Error adding document: ", error);
+      setSaveError(errorMessage(error));
     }
     setLoading(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!user) return;
+    if (!user || !window.confirm('Xoá cấu hình dự án này? Bài viết trên WordPress không bị xoá.')) return;
     try {
       await deleteDoc(doc(db, 'users', user.uid, 'projects', id));
-      await fetchProjects();
+      reload();
     } catch (error) {
-      console.error("Error deleting document: ", error);
+      setSaveError(errorMessage(error));
     }
   };
 
   return (
     <div className="max-w-6xl mx-auto p-8 pt-10">
+      {(projectsError || saveError) && <p role="alert" className="mb-4 text-red-500">{saveError || projectsError}</p>}
       <header className="mb-8 border-b border-gray-200 dark:border-gray-800 pb-6">
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide flex items-center gap-2">
           <Target className="text-violet-400" />
@@ -141,7 +132,7 @@ export default function ProjectsPage() {
                 <option value="png">PNG (Giữ nền trong suốt)</option>
               </select>
             </div>
-            <button type="submit" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
+            <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white hover:scale-[1.02] shadow-lg shadow-violet-500/30 transition-all font-bold py-2.5 rounded-xl hover:bg-gray-100 transition-all duration-300 mt-4">
               <Plus size={16} /> Thêm Dự Án
             </button>
           </form>

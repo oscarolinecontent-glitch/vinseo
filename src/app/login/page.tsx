@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { AuthLoading } from '@/components/AuthLoading';
 import { LogIn } from 'lucide-react'; // Đổi sang LogIn vì bản lucide hiện tại không có icon Chrome
 
 export default function LoginPage() {
@@ -12,11 +13,11 @@ export default function LoginPage() {
   useEffect(() => {
     // Nếu đã đăng nhập thì tự động đá vào dashboard
     if (user && !loading) {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   }, [user, loading, router]);
 
-  if (loading) return null; // Hoặc spinner
+  if (loading) return <AuthLoading />;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))] relative overflow-hidden">

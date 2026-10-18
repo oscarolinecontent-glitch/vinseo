@@ -1,6 +1,7 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Target, Briefcase, Puzzle, FileText, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -21,7 +22,7 @@ export default function Sidebar() {
           {/* Thay Hexagon bằng Logo thực tế + Hiệu ứng phát sáng nhịp nhàng */}
           <div className="relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-lg blur opacity-50 animate-pulse"></div>
-            <img src="/favicon.ico" alt="VinSEO Logo" className="relative w-8 h-8 rounded drop-shadow-xl bg-slate-900" />
+            <Image width={32} height={32} src="/favicon.ico" alt="VinSEO Logo" className="relative w-8 h-8 rounded drop-shadow-xl bg-slate-900" />
           </div>
           <span className="font-bold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-violet-700 to-fuchsia-700 dark:from-white dark:to-gray-400 tracking-wide drop-shadow-md">VinSEO</span>
           <span className="text-[10px] text-gray-500 dark:text-gray-400 bg-gray-800 px-1.5 rounded uppercase mt-1">v1.0</span>
@@ -42,7 +43,7 @@ export default function Sidebar() {
       {user && (
         <div className="p-4 border-t border-gray-200 dark:border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
-            <img src={user.photoURL || 'https://via.placeholder.com/40'} alt="Avatar" className="w-9 h-9 shrink-0 rounded-full object-cover border border-gray-200 dark:border-white/10 shadow-lg" />
+            <Image width={36} height={36} unoptimized src={user.photoURL || '/favicon.ico'} alt="Avatar" className="w-9 h-9 shrink-0 rounded-full object-cover border border-gray-200 dark:border-white/10 shadow-lg" />
             <div className="flex flex-col truncate">
               <span className="text-sm text-slate-900 dark:text-white font-medium truncate">{user.displayName}</span>
               <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</span>

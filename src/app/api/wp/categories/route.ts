@@ -1,8 +1,13 @@
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
+  return withApiAuth(req, async () => {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { siteConfig } = body; 
 
     if (!siteConfig || !siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
@@ -26,11 +31,12 @@ export async function POST(req: Request) {
 
     if (response.ok) {
       const categories = JSON.parse(responseText);
-      return NextResponse.json({ success: true, categories: categories.map((c: any) => ({ id: c.id, name: c.name })) });
+      return NextResponse.json({ success: true, categories: categories.map((c: { id: number; name: string }) => ({ id: c.id, name: c.name })) });
     } else {
       return NextResponse.json({ success: false, message: "Lỗi tải danh mục" }, { status: response.status });
     }
-  } catch (error: any) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ success: false, message: errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

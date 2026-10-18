@@ -22,9 +22,9 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - [x] **Module Google Docs Parser** (`src/lib/googleApi.ts`): Bóc tách HTML từ Google Docs → Title, Meta Desc, Thumbnail, Content. Xử lý bold/italic từ CSS classes, caption ảnh, căn lề.
 - [x] **Module Auto Post WordPress** (`src/app/api/wp/post/route.ts`): Đăng bài hàng loạt (Post/Page/Category) lên WP qua REST API. Hỗ trợ cả Basic Auth và Cookie Auth fallback (bypass WAF).
 - [x] **Module Xử Lý Ảnh** (`src/lib/imageProcessor.ts`): 2 chế độ - (1) Ảnh dạng key: download ảnh từ Google Docs → convert format → upload WP, (2) Ảnh dạng chú thích: tìm ảnh đã upload sẵn trên WP theo slug caption. Hỗ trợ **resize tự động** theo kích thước tuỳ chỉnh (`image_width` x `image_height`).
-- [x] **Module WP Auth** (`src/lib/wpAuth.ts`): Giả lập browser đăng nhập WP → lấy session cookie + nonce. Cache session 2 tiếng.
+- [x] **Module WP Auth** (`src/lib/wpAuth.ts`): Giả lập browser đăng nhập WP → lấy session cookie + nonce. Cache session 30 phút, tách theo UID và hash bộ credentials, tối đa 100 entry.
 - [x] **RankMath SEO Integration**: Cập nhật meta SEO (title, desc, focus keyword, primary category) qua Admin Session API.
-- [x] **Tool Resize Ảnh Hàng Loạt** (`/dashboard/tools/resize-images`): Download ảnh từ bài đã đăng → resize bằng Sharp → xoá media cũ → upload mới → cập nhật nội dung bài (thay src, width, height, media ID, featured_media).
+- [x] **Tool Resize Ảnh Hàng Loạt** (`/dashboard/tools/resize-images`): Download ảnh từ bài đã đăng → resize bằng Sharp → upload mới → cập nhật nội dung bài thành công → tuỳ chọn xoá media cũ (thay src, width, height, media ID, featured_media).
 - [x] **Trang Tools Hub** (`/dashboard/tools`): Danh sách các công cụ với status cards.
 
 ## 3. Cấu Trúc Source Code
@@ -58,8 +58,8 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 | `docs/` | Hướng dẫn API |
 
 ## 4. Cấu trúc Database (Firestore)
-- **Rules:** Đang ở chế độ Test Mode.
-- **Data Tree:** `users / {uid} / projects / {projectID}` (Bảo mật: Mỗi user chỉ thấy data của chính họ).
+- **Rules:** Có file `firestore.rules` giới hạn theo UID, CHƯA deploy/xác minh Firebase thực tế. Tài liệu cũ ghi Test Mode: phải kiểm tra trước production.
+- **Data Tree:** `users / {uid} / projects / {projectID}` (Phải thực thi bằng security rules, không chỉ lọc trên giao diện).
 
 ## 5. Các Vấn Đề Cần Lưu Ý
 - Nếu user thay đổi ảnh/icon trong `public/` mà web không cập nhật → cache trình duyệt (Ctrl + F5) hoặc quên `git push`.
@@ -73,3 +73,13 @@ Tài liệu này được AI đọc vào mỗi đầu phiên làm việc để n
 - Hoàn thiện giao diện quản lý tiến trình đăng bài (Dashboard UI thống kê).
 - Xây dựng thêm các Tools mới (Tối ưu ảnh WebP, Replace Domain...).
 - Nâng cấp bảo mật Firestore Rules từ Test Mode sang Production.
+
+## Cập nhật tối ưu 2026-09-17
+
+- Xem README.md để biết giới hạn, thay đổi hành vi và checklist triển khai.
+- API yêu cầu Firebase ID token qua apiFetch/withApiAuth; kết nối ngoài dùng safeFetch chống SSRF, giới hạn thời gian/dung lượng.
+- Không publish bài placeholder; giữ ID nếu bước sau thất bại. Không tự retry tạo bài/upload khi không chắc kết quả.
+- Sync không xoá figure chứa bảng/video hay paragraph theo phỏng đoán in nghiêng/căn giữa; dừng nếu thiếu ảnh/không khớp mốc nội dung.
+- QUY TẮC NGHIỆP VỤ ĐÃ ĐƯỢC CHỦ DỰ ÁN XÁC NHẬN: cộng tác viên thường đặt ảnh check spin cuối Google Docs. Phải loại ảnh cuối phần nội dung và các ảnh còn sau đoạn văn bản cuối trước khi upload WP; thumbnail tách riêng được giữ. Không tự ý bỏ cơ chế này khi tối ưu. Logic ở googleDocImages.ts, được parseGoogleDoc gọi và có kiểm thử hồi quy.
+- Firestore Lite, hook useProjects, lazy JSZip, giới hạn ZIP/image; bỏ googleapis và file mẫu/script một lần.
+- Chưa migration mật khẩu WP sang kho bí mật; không tuyên bố dữ liệu đã mã hoá hoặc rules đã deploy.

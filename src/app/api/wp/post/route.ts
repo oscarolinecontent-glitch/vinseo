@@ -1,3 +1,8 @@
+import type { SiteConfig } from '@/lib/types';
+import { errorMessage } from '@/lib/types';
+import { readJson, errorStatus } from '@/lib/server/request';
+import { withApiAuth } from '@/lib/server/auth';
+import { safeFetch as fetch } from '@/lib/server/network';
 import { NextResponse } from 'next/server';
 import dns from 'dns';
 
@@ -5,8 +10,7 @@ import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 import { parseGoogleDoc } from '@/lib/googleApi';
 import { processAndUploadImages, processImagesByCaption } from '@/lib/imageProcessor';
-import { getWpAdminSession } from '@/lib/wpAuth';
-import { getWpAdminPath } from '@/lib/wpAuth';
+import { getWpAdminSession, getWpAdminPath } from '@/lib/wpAuth';
 import { makeInternalLinksRelative } from '@/lib/wpHelper';
 
 // Tăng timeout tối đa lên 5 phút để tránh 504 khi bài có nhiều ảnh lớn
@@ -33,7 +37,7 @@ async function updateRankMathViaAdminSession(
   desc: string,
   keyword: string,
   categoryId: string | number,
-  siteConfig: any
+  siteConfig: SiteConfig
 ) {
   try {
     const session = await getWpAdminSession(siteConfig);
@@ -45,7 +49,7 @@ async function updateRankMathViaAdminSession(
     const base = siteConfig.wp_url.replace(/\/$/, '');
 
     // Headers gọi Rank Math API
-    const rmHeaders: any = {
+    const rmHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       'Cookie': session.cookieStr,
       'X-WP-Nonce': session.nonce,
@@ -61,7 +65,7 @@ async function updateRankMathViaAdminSession(
       if (urlObj.username && urlObj.password) {
         rmHeaders['Authorization'] = 'Basic ' + Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
       }
-    } catch (e) { }
+    } catch { }
 
     const rmRes = await fetch(`${base}/wp-json/rankmath/v1/updateMeta`, {
       method: 'POST',
@@ -92,7 +96,7 @@ async function updateCategoryDescriptionViaAdmin(
   title: string,
   slug: string,
   descriptionHtml: string,
-  siteConfig: any
+  siteConfig: SiteConfig
 ) {
   const session = await getWpAdminSession(siteConfig);
   if (!session) {
@@ -193,8 +197,10 @@ async function updateCategoryDescriptionViaAdmin(
 }
 
 export async function POST(req: Request) {
+  return withApiAuth(req, async () => {
+  let created: { id: number; url: string } | null = null;
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { siteConfig, postData } = body;
 
     if (!siteConfig || !siteConfig.wp_url || !siteConfig.wp_user || !siteConfig.wp_app_pass) {
@@ -214,7 +220,7 @@ export async function POST(req: Request) {
     // Xử lý tạo Token Base64 từ credential
     const credentials = Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64');
 
-    let headers: any = {
+    let headers: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
@@ -249,7 +255,6 @@ export async function POST(req: Request) {
     let finalTitle = postData.title;
     let finalContent = "";
     let finalMetaDesc = postData.meta_desc || "";
-    let driveLink = "";
     let thumbUrl = "";
 
     // Thực hiện Parse Google Doc nếu user có gửi link
@@ -260,7 +265,6 @@ export async function POST(req: Request) {
       }
       if (!finalTitle) finalTitle = parseResult.title || "";
       if (!finalMetaDesc && parseResult.meta_desc) finalMetaDesc = parseResult.meta_desc;
-      driveLink = parseResult.drive_link || "";
       finalContent = parseResult.content || "";
       // Strip domain from internal links to make them relative if ticked
       if (postData.makeLinksRelative) {
@@ -273,7 +277,7 @@ export async function POST(req: Request) {
 
     const postType = postData.postType || 'post'; // 'post', 'page', 'category'
 
-    let wpPayload: any = {};
+    let wpPayload: Record<string, unknown> = {};
     let endpointStr = 'posts';
 
     if (postType === 'category') {
@@ -295,28 +299,64 @@ export async function POST(req: Request) {
       });
       const responseText = await response.text();
 
+      let catId: number | null = null;
+      let catUrl = '';
+      let existingSlug = catSlug;
+
       if (response.ok || response.status === 201) {
         const data = JSON.parse(responseText);
-        const catId = data.id;
-
-        // Xử lý ảnh cho danh mục
-        let imageProcessResult;
-        if (postData.imageType === 'caption') {
-          imageProcessResult = await processImagesByCaption(finalContent, postData.keyword || finalTitle, siteConfig);
-        } else {
-          imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, catSlug, postData.keyword || finalTitle, siteConfig);
-        }
-
-        // Cập nhật Description qua Admin Session để giữ lại toàn bộ HTML
-        await updateCategoryDescriptionViaAdmin(catId, finalTitle, catSlug, imageProcessResult.processedHtml, siteConfig);
-
-        updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
-          .catch(e => console.error('RankMath update error:', e));
-
-        return NextResponse.json({ success: true, url: data.link, wp_id: catId });
+        catId = data.id;
+        catUrl = data.link;
       } else {
+        try {
+          const err = JSON.parse(responseText);
+          if (err.code === 'term_exists') {
+            catId = err.data?.term_id || (Array.isArray(err.additional_data) ? err.additional_data[0] : null) || err.term_id;
+            if (catId) {
+              console.log(`Category '${catSlug}' đã tồn tại (term_id: ${catId}), tự động cập nhật nội dung.`);
+              try {
+                const getCatRes = await fetch(`${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/categories/${catId}`, {
+                  headers
+                });
+                if (getCatRes.ok) {
+                  const catData = await getCatRes.json();
+                  catUrl = catData.link || '';
+                  if (catData.slug) existingSlug = catData.slug;
+                }
+              } catch (fetchCatErr) {
+                console.warn('Không fetch được thông tin category đã tồn tại:', fetchCatErr);
+              }
+              if (!catUrl) {
+                catUrl = `${siteConfig.wp_url.replace(/\/$/, "")}/category/${existingSlug}/`;
+              }
+            }
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+
+      if (!catId) {
         return NextResponse.json({ success: false, message: `Lỗi tạo category: ${response.status} - ${responseText}` }, { status: response.status });
       }
+
+      created = { id: catId, url: catUrl };
+
+      // Xử lý ảnh cho danh mục
+      let imageProcessResult;
+      if (postData.imageType === 'caption') {
+        imageProcessResult = await processImagesByCaption(finalContent, postData.keyword || finalTitle, siteConfig);
+      } else {
+        imageProcessResult = await processAndUploadImages(finalContent, thumbUrl, existingSlug, postData.keyword || finalTitle, siteConfig);
+      }
+
+      // Cập nhật Description qua Admin Session để giữ lại toàn bộ HTML
+      await updateCategoryDescriptionViaAdmin(catId, finalTitle, existingSlug, imageProcessResult.processedHtml, siteConfig);
+
+      await updateRankMathViaAdminSession(catId, postType, finalTitle, finalMetaDesc, postData.keyword || '', '', siteConfig)
+        .catch(e => console.error('RankMath update error:', e));
+
+      return NextResponse.json({ success: true, url: catUrl, wp_id: catId });
 
     } else {
       // XỬ LÝ POST / PAGE
@@ -329,7 +369,7 @@ export async function POST(req: Request) {
         title: finalTitle || 'Bài viết Auto generated',
         content: "Đang tải nội dung...", // Gửi nội dung tạm để xí chỗ slug trước, tránh làm sập WP nếu raw HTML quá lớn
         slug: finalSlug,
-        status: postData.status || "draft",
+        status: "draft", // Publish only after content and images have been saved.
         meta: {
           rank_math_title: finalTitle,
           rank_math_description: finalMetaDesc,
@@ -358,8 +398,8 @@ export async function POST(req: Request) {
           headers: headers,
           body: JSON.stringify(wpPayload)
         });
-      } catch (fetchError: any) {
-        throw new Error(`Không thể kết nối tới Website WordPress (${siteConfig.wp_url}). Vui lòng kiểm tra lại đường truyền mạng hoặc kiểm tra xem Website có chặn truy cập không. Chi tiết: ${fetchError.message}`);
+      } catch (fetchError) {
+        throw new Error(`Không thể kết nối tới Website WordPress (${siteConfig.wp_url}). Vui lòng kiểm tra lại đường truyền mạng hoặc kiểm tra xem Website có chặn truy cập không. Chi tiết: ${errorMessage(fetchError)}`);
       }
 
       const responseText = await response.text();
@@ -369,7 +409,7 @@ export async function POST(req: Request) {
         try {
           const err = JSON.parse(responseText);
           errorMessage = err.message || errorMessage;
-        } catch (e) {
+        } catch {
           errorMessage = `Lỗi từ Server WP (Mã ${response.status}). Máy chủ trả về HTML thay vì JSON.`;
         }
         return NextResponse.json({ success: false, message: errorMessage }, { status: response.status });
@@ -378,12 +418,13 @@ export async function POST(req: Request) {
       let data;
       try {
         data = JSON.parse(responseText);
-      } catch (parseError) {
+      } catch {
         console.error("WP API trả về không phải JSON:", responseText.substring(0, 500));
         return NextResponse.json({ success: false, message: "WP trả về dữ liệu không hợp lệ." }, { status: 500 });
       }
 
       const postId = data.id;
+      created = { id: postId, url: data.link };
 
       // BƯỚC 2: XỬ LÝ ẢNH & THUMBNAIL 
       // Do bài viết đã chiếm thành công slug, tên file ảnh trùng slug sẽ không ảnh hưởng bài viết nữa
@@ -395,17 +436,22 @@ export async function POST(req: Request) {
       }
 
       // BƯỚC 3: CẬP NHẬT LẠI BÀI VIẾT VỚI NỘI DUNG ĐÃ CÓ ẢNH & GẮN FEATURED MEDIA
-      await fetch(`${endpoint}/${postId}`, {
+      const contentResponse = await fetch(`${endpoint}/${postId}`, {
         method: "POST",
         headers: headers,
         body: JSON.stringify({
           content: imageProcessResult.processedHtml,
+          status: postData.status === 'publish' ? 'publish' : 'draft',
           featured_media: imageProcessResult.thumbnailId || 0,
           meta: {
             rank_math_primary_category: postData.categoryId ? parseInt(postData.categoryId, 10) : 0
           }
         })
       });
+
+      if (!contentResponse.ok) {
+        return NextResponse.json({ success: false, wp_id: postId, url: data.link, message: `Đã tạo bản nháp #${postId}, nhưng chưa cập nhật được nội dung (HTTP ${contentResponse.status}). Hãy dùng chế độ Cập nhật để tiếp tục.` }, { status: 502 });
+      }
 
       // Ép đè RankMath meta (await để đảm bảo hoàn thành trước khi Vercel kill function)
       await updateRankMathViaAdminSession(postId, postType, finalTitle, finalMetaDesc, postData.keyword || '', postData.categoryId || '', siteConfig)
@@ -414,8 +460,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, url: data.link, wp_id: postId });
     }
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/wp/post Unhandled Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, wp_id: created?.id, url: created?.url, message: created ? `Đã tạo mục #${created.id}, nhưng chưa hoàn tất: ${errorMessage(error)} Hãy dùng chế độ Cập nhật để tiếp tục, không tạo lại.` : errorMessage(error) }, { status: errorStatus(error) });
   }
+  });
 }

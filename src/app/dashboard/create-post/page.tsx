@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { errorMessage } from '@/lib/types';
+
+import { apiFetch } from '@/lib/apiClient';
+
+import React, { useState } from 'react';
 import { Send, FileText, Settings, Key, Link as LinkIcon, CheckCircle2, AlertCircle, Plus, Trash2, RefreshCw, Edit3, PlusCircle } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useProjects } from '@/hooks/useProjects';
 
 type PostItem = {
   id: string;
@@ -37,7 +39,7 @@ type UpdateItem = {
 };
 
 export default function CreatePostPage() {
-  const { user } = useAuth();
+  const { projects, error: projectsError } = useProjects();
   const [mode, setMode] = useState<'create' | 'update' | 'sync'>('create');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -51,7 +53,6 @@ export default function CreatePostPage() {
   ]);
   const [updateExcelText, setUpdateExcelText] = useState('');
 
-  const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
   const [siteConfig, setSiteConfig] = useState({
@@ -70,7 +71,7 @@ export default function CreatePostPage() {
     if (p.startsWith('http://') || p.startsWith('https://')) {
       try {
         p = new URL(p).pathname;
-      } catch (e) {
+      } catch {
         p = '';
       }
     }
@@ -102,24 +103,13 @@ export default function CreatePostPage() {
     { id: Date.now().toString(), gdoc_url: '', postType: 'post', categoryId: '1', status: 'draft', title: '', meta_desc: '' }
   ]);
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      if (!user) return;
-      const q = collection(db, 'users', user.uid, 'projects');
-      const querySnapshot = await getDocs(q);
-      const loaded: any[] = [];
-      querySnapshot.forEach((doc) => {
-        loaded.push({ id: doc.id, ...doc.data() });
-      });
-      setProjects(loaded);
-    };
-    fetchProjects();
-  }, [user]);
+
 
   const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value;
     setSelectedProjectId(pId);
     setCheckResult(null);
+    setSiteCategories([]);
     
     if (pId) {
       const p = projects.find(x => x.id.toString() === pId);
@@ -131,9 +121,10 @@ export default function CreatePostPage() {
     }
   };
 
-  const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setSiteConfig({ ...siteConfig, [e.target.name]: e.target.value });
     setCheckResult(null);
+    setSiteCategories([]);
   };
 
   const checkConnection = async () => {
@@ -143,7 +134,7 @@ export default function CreatePostPage() {
     }
     setChecking(true);
     try {
-      const res = await fetch('/api/wp/check', {
+      const res = await apiFetch('/api/wp/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ siteConfig })
@@ -154,7 +145,7 @@ export default function CreatePostPage() {
       // Nếu kết nối thành công, lấy danh sách categories luôn
       if (data.success) {
         try {
-          const catRes = await fetch('/api/wp/categories', {
+          const catRes = await apiFetch('/api/wp/categories', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ siteConfig })
@@ -167,14 +158,14 @@ export default function CreatePostPage() {
           console.error("Lỗi lấy danh mục", e);
         }
       }
-    } catch (err: any) {
-      setCheckResult({ success: false, message: err.message });
+    } catch (err) {
+      setCheckResult({ success: false, message: errorMessage(err) });
     } finally {
       setChecking(false);
     }
   };
 
-  const updatePost = (id: string, field: keyof PostItem, value: any) => {
+  const updatePost = <K extends keyof PostItem>(id: string, field: K, value: PostItem[K]) => {
     setPosts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   };
 
@@ -220,7 +211,7 @@ export default function CreatePostPage() {
   };
 
   // ---- Handlers cho Update Mode ----
-  const updateUpdateItem = (id: string, field: keyof UpdateItem, value: any) => {
+  const updateUpdateItem = <K extends keyof UpdateItem>(id: string, field: K, value: UpdateItem[K]) => {
     setUpdateItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
@@ -280,7 +271,7 @@ export default function CreatePostPage() {
 
       let attempt = 1;
       let success = false;
-      const maxAttempts = 2;
+      const maxAttempts = 1;
 
       while (attempt <= maxAttempts && !success) {
         if (attempt === 2) {
@@ -288,10 +279,8 @@ export default function CreatePostPage() {
         }
 
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 150000);
 
-          const res = await fetch('/api/wp/update-post', {
+          const res = await apiFetch('/api/wp/update-post', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -305,10 +294,7 @@ export default function CreatePostPage() {
                 makeLinksRelative: makeLinksRelative,
               },
             }),
-            signal: controller.signal,
           });
-
-          clearTimeout(timeoutId);
           const data = await res.json();
 
           if (data.success) {
@@ -334,12 +320,12 @@ export default function CreatePostPage() {
               } : u));
             }
           }
-        } catch (err: any) {
+        } catch (err) {
           if (attempt === maxAttempts) {
-            if (err.name === 'AbortError') {
+            if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
               setUpdateItems(prev => prev.map(u => u.id === item.id ? { ...u, resultStatus: 'error', resultMessage: 'Lỗi: Thời gian chờ quá lâu (Timeout).' } : u));
             } else {
-              setUpdateItems(prev => prev.map(u => u.id === item.id ? { ...u, resultStatus: 'error', resultMessage: err.message } : u));
+              setUpdateItems(prev => prev.map(u => u.id === item.id ? { ...u, resultStatus: 'error', resultMessage: errorMessage(err) } : u));
             }
           }
         }
@@ -375,7 +361,7 @@ export default function CreatePostPage() {
   ]);
   const [syncExcelText, setSyncExcelText] = React.useState('');
 
-  const updateSyncItem = (id: string, field: keyof SyncItem, value: any) =>
+  const updateSyncItem = <K extends keyof SyncItem>(id: string, field: K, value: SyncItem[K]) =>
     setSyncItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   const addSyncItem = () =>
     setSyncItems(prev => [...prev, { id: Date.now().toString(), wp_post_url: '', gdoc_url: '', keyword: '' }]);
@@ -406,17 +392,13 @@ export default function CreatePostPage() {
       const item = syncItems[i];
       if (!item.wp_post_url || !item.gdoc_url) continue;
       updateSyncItem(item.id, 'resultStatus', 'loading');
-      let attempt = 1; let success = false; const maxAttempts = 2;
+      let attempt = 1; let success = false; const maxAttempts = 1;
       while (attempt <= maxAttempts && !success) {
         try {
-          const controller = new AbortController();
-          const tid = setTimeout(() => controller.abort(), 150000);
-          const res = await fetch('/api/wp/sync-images', {
+          const res = await apiFetch('/api/wp/sync-images', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ siteConfig, postData: { wp_post_url: item.wp_post_url, gdoc_url: item.gdoc_url, keyword: item.keyword, imageType, makeLinksRelative } }),
-            signal: controller.signal,
           });
-          clearTimeout(tid);
           const data = await res.json();
           if (data.success) {
             setSyncItems(prev => prev.map(s => s.id === item.id ? {
@@ -429,10 +411,10 @@ export default function CreatePostPage() {
               ...s, resultStatus: 'error', resultMessage: data.message, errorCode: data.errorCode || '',
             } : s));
           }
-        } catch (err: any) {
+        } catch (err) {
           if (attempt === maxAttempts) setSyncItems(prev => prev.map(s => s.id === item.id ? {
             ...s, resultStatus: 'error',
-            resultMessage: err.name === 'AbortError' ? 'Timeout' : err.message,
+            resultMessage: err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError') ? 'Timeout' : errorMessage(err),
           } : s));
         }
         if (!success) { attempt++; if (attempt <= maxAttempts) await new Promise(r => setTimeout(r, 3500)); }
@@ -462,14 +444,14 @@ export default function CreatePostPage() {
 
     for (let i = 0; i < posts.length; i++) {
       const p = posts[i];
-      if (!p.gdoc_url) continue;
+      if (!p.gdoc_url || p.resultStatus === 'success' || p.wp_id) continue;
 
       // Update status to loading
       updatePost(p.id, 'resultStatus', 'loading');
 
       let attempt = 1;
       let success = false;
-      const maxAttempts = 2;
+      const maxAttempts = 1;
 
       while (attempt <= maxAttempts && !success) {
         if (attempt === 2) {
@@ -477,10 +459,8 @@ export default function CreatePostPage() {
         }
 
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 150000);
 
-          const res = await fetch('/api/wp/post', {
+          const res = await apiFetch('/api/wp/post', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -497,10 +477,7 @@ export default function CreatePostPage() {
                 makeLinksRelative: makeLinksRelative
               }
             }),
-            signal: controller.signal
           });
-          
-          clearTimeout(timeoutId);
 
           const data = await res.json();
           
@@ -509,16 +486,16 @@ export default function CreatePostPage() {
             success = true;
           } else {
             if (attempt === maxAttempts) {
-              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: data.message } : item));
+              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: data.message, wp_id: data.wp_id, resultUrl: data.url } : item));
             }
           }
 
-        } catch (err: any) {
+        } catch (err) {
           if (attempt === maxAttempts) {
-            if (err.name === 'AbortError') {
+            if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
               setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: 'Lỗi: Thời gian chờ quá lâu (Timeout). Server WP không phản hồi.' } : item));
             } else {
-              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: err.message } : item));
+              setPosts(prev => prev.map(item => item.id === p.id ? { ...item, resultStatus: 'error', resultMessage: errorMessage(err) } : item));
             }
           }
         }
@@ -543,6 +520,7 @@ export default function CreatePostPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-8 pt-10">
+      {projectsError && <p role="alert" className="mb-4 text-sm text-red-500">Không tải được dự án: {projectsError}</p>}
       <header className="mb-6 border-b border-gray-200 dark:border-gray-800 pb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -644,7 +622,7 @@ export default function CreatePostPage() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Định dạng ảnh tải lên</label>
-              <select name="image_format" value={siteConfig.image_format || 'webp'} onChange={handleConfigChange as any} className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition">
+              <select name="image_format" value={siteConfig.image_format || 'webp'} onChange={handleConfigChange} className="w-full bg-white dark:bg-black/20 border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-violet-500 transition">
                 <option value="webp">WebP (Khuyên dùng - Nén siêu nhẹ)</option>
                 <option value="jpeg">JPEG (Phổ thông)</option>
                 <option value="png">PNG (Giữ nguyên nền trong suốt)</option>
@@ -749,7 +727,7 @@ export default function CreatePostPage() {
               <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
                 <p className="text-gray-400 dark:text-gray-500 text-sm mb-3">Chưa có dòng nào. Thêm link hoặc nhập từ Excel.</p>
               </div>
-            ) : posts.map((post, index) => (
+            ) : posts.map((post) => (
               <div key={post.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 items-center border rounded-md p-2 transition-colors ${
                 post.resultStatus === 'error' 
                   ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700' 
@@ -779,13 +757,13 @@ export default function CreatePostPage() {
                   )}
                 </div>
                 <div className="col-span-2 flex gap-1">
-                  <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value)} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded px-1 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
+                  <select value={post.postType} onChange={(e) => updatePost(post.id, 'postType', e.target.value as PostItem['postType'])} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded px-1 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="post">Post</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="news">News</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="page">Page</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="category">Category</option>
                   </select>
-                  <select value={post.status} onChange={(e) => updatePost(post.id, 'status', e.target.value)} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded px-1 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
+                  <select value={post.status} onChange={(e) => updatePost(post.id, 'status', e.target.value as PostItem['status'])} className="w-1/2 bg-transparent border border-gray-300 dark:border-gray-700 rounded px-1 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-violet-500">
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="draft">Nháp</option>
                     <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="publish">Public</option>
                   </select>
@@ -801,7 +779,7 @@ export default function CreatePostPage() {
                     <span className="text-gray-400 text-xs">Chờ</span>}
                 </div>
                 <div className="col-span-1 text-center flex items-center justify-center gap-1">
-                   {post.resultStatus === 'success' && post.resultUrl ? (
+                   {post.resultUrl ? (
                       <div className="flex gap-2 items-center justify-center">
                         <a href={post.resultUrl} target="_blank" rel="noreferrer" className="text-violet-500 hover:text-violet-400 transition" title="Xem bài đăng">
                           <LinkIcon size={16} className="inline" />
@@ -812,6 +790,10 @@ export default function CreatePostPage() {
                       <button
                         title={`Thử lại: ${post.resultMessage || ''}`}
                         onClick={() => {
+                          if (post.wp_id) {
+                            window.open(getEditUrl(post.wp_id, post.postType), '_blank', 'noopener,noreferrer');
+                            return;
+                          }
                           updatePost(post.id, 'resultStatus', 'pending');
                           updatePost(post.id, 'resultMessage', '');
                         }}

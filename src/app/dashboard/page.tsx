@@ -4,21 +4,23 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FileText, PlayCircle, CheckCircle2, Clock, AlertCircle, Briefcase, Target } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebaseDb';
+import { collection, getCount } from 'firebase/firestore/lite';
 
 export default function DashboardOverview() {
-  const [projectCount, setProjectCount] = useState(0);
+  const [projectCount, setProjectCount] = useState<number | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
+    let active = true;
     const fetchProjectCount = async () => {
       if (!user) return;
       const q = collection(db, 'users', user.uid, 'projects');
-      const snap = await getDocs(q);
-      setProjectCount(snap.size);
+      const snap = await getCount(q);
+      if (active) setProjectCount(snap.data().count);
     };
-    fetchProjectCount();
+    fetchProjectCount().catch(() => { if (active) setProjectCount(null); });
+    return () => { active = false; };
   }, [user]);
 
   return (
@@ -79,7 +81,7 @@ export default function DashboardOverview() {
 
       {/* KPI CARDS - Stats (Đang chạy, Chờ Xử Lý, Thành công, Lỗi) */}
       <div className="grid grid-cols-4 gap-5 mb-8">
-        <KPICard title="Dự Án Đã Kết Nối" value={projectCount.toString()} icon={<Target size={22} className="text-blue-400"/>} active borderCl="#60a5fa"/>
+        <KPICard title="Dự Án Đã Kết Nối" value={projectCount?.toString() ?? '—'} icon={<Target size={22} className="text-blue-400"/>} active borderCl="#60a5fa"/>
         <KPICard title="Chờ Gửi API Xử Lý" value="0" icon={<Clock size={22} className="text-gray-600 dark:text-gray-400"/>} />
         <KPICard title="Đã Xong Hôm Nay" value="0" icon={<CheckCircle2 size={22} className="text-emerald-400"/>} active borderCl="#34d399"/>
         <KPICard title="WP Lỗi Cổng/Time Out" value="0" icon={<AlertCircle size={22} className="text-rose-400"/>} active borderCl="#fb7185" />

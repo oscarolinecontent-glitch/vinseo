@@ -1,4 +1,9 @@
+import { safeFetch as fetch } from './server/network';
 import sharp from 'sharp';
+import { escapeHtml } from './html';
+
+export type UploadedImage = { source: string; url: string; id: number; width: number; height: number };
+import type { MediaMatch, WpMedia } from './types';
 import * as cheerio from 'cheerio';
 
 interface SiteConfig {
@@ -10,7 +15,7 @@ interface SiteConfig {
   image_format?: string; // 'webp', 'jpeg', 'png'
   image_width?: number;  // Chiều rộng mục tiêu (vd: 800)
   image_height?: number; // Chiều cao mục tiêu (vd: 450)
-  authHeaders?: any; // Dùng để bypass WAF nếu có Session Cookie
+  authHeaders?: Record<string, string>; // Dùng để bypass WAF nếu có Session Cookie
 }
 
 /**
@@ -20,11 +25,13 @@ interface SiteConfig {
 async function buildSharpOutput(inputBuffer: Buffer, siteConfig: SiteConfig): Promise<{
   buffer: Buffer; contentType: string; ext: string; width: number; height: number;
 }> {
-  let pipeline = sharp(inputBuffer);
+  if (inputBuffer.byteLength > 20 * 1024 * 1024) throw new Error('Ảnh vượt giới hạn 20 MB.');
+  let pipeline = sharp(inputBuffer, { limitInputPixels: 40_000_000 });
 
   // Resize nếu user có cấu hình kích thước
   const tw = siteConfig.image_width;
   const th = siteConfig.image_height;
+  if ((tw !== undefined && (!Number.isInteger(tw) || tw < 1 || tw > 4096)) || (th !== undefined && (!Number.isInteger(th) || th < 1 || th > 4096))) throw new Error('Kích thước ảnh phải từ 1–4096 px.');
   if (tw && th && tw > 0 && th > 0) {
     pipeline = pipeline.resize(tw, th, { fit: 'cover', position: 'center' });
   } else if (tw && tw > 0) {
@@ -50,8 +57,7 @@ async function buildSharpOutput(inputBuffer: Buffer, siteConfig: SiteConfig): Pr
     ext = 'webp';
   }
 
-  const finalBuffer = await pipeline.toBuffer();
-  const meta = await sharp(finalBuffer).metadata();
+  const { data: finalBuffer, info: meta } = await pipeline.toBuffer({ resolveWithObject: true });
 
   return {
     buffer: finalBuffer,
@@ -62,8 +68,8 @@ async function buildSharpOutput(inputBuffer: Buffer, siteConfig: SiteConfig): Pr
   };
 }
 
-function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: any = {}) {
-  const headers = siteConfig.authHeaders ? { ...siteConfig.authHeaders } : {
+function getApiHeaders(siteConfig: SiteConfig, additionalHeaders: Record<string, string> = {}) {
+  const headers: Record<string, string> = siteConfig.authHeaders ? { ...siteConfig.authHeaders } : {
     'Authorization': 'Basic ' + Buffer.from(`${siteConfig.wp_user}:${siteConfig.wp_app_pass}`).toString('base64')
   };
   return { ...headers, ...additionalHeaders };
@@ -75,23 +81,25 @@ export async function processAndUploadImages(
   keywordSlug: string, 
   rawKeyword: string,
   siteConfig: SiteConfig
-): Promise<{ processedHtml: string, thumbnailId: number | null }> {
+): Promise<{ processedHtml: string, thumbnailId: number | null, uploadedImages: UploadedImage[] }> {
+  const uploadedImages: UploadedImage[] = [];
   let thumbnailId: number | null = null;
 
   // 0. XỬ LÝ THUMBNAIL (NẾU CÓ)
   if (thumbUrl) {
      const safeSlug = keywordSlug.replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-zA-Z0-9.\-]/g, "");
      const thumbId = await uploadImageToWp(thumbUrl, `${safeSlug}.webp`, rawKeyword, siteConfig);
-     if (thumbId) thumbnailId = thumbId;
+     if (!thumbId) throw new Error('Không tải được ảnh đại diện. Dừng lưu nội dung để tránh thiếu ảnh.');
+     thumbnailId = thumbId;
   }
 
   // Load nội dung với Cheerio
   const $ = cheerio.load(htmlContent, { xmlMode: false });
   const images = $('img').toArray();
+  if (images.length > 100) throw new Error('Mỗi bài tối đa 100 ảnh.');
   
   // Xử lý ảnh song song theo batch (ví dụ: 3 ảnh/lần) để tối ưu thời gian. Ảnh nào lỗi sẽ tự động retry độc lập.
   const BATCH_SIZE = 3;
-  const results: Array<{ index: number; classicBlock: string; imgNode: any }> = [];
 
   for (let batchStart = 0; batchStart < images.length; batchStart += BATCH_SIZE) {
     const batch = images.slice(batchStart, batchStart + BATCH_SIZE);
@@ -115,7 +123,7 @@ export async function processAndUploadImages(
           }
           // Retry tối đa 3 lần vì Google URLs hay lỗi tạm (rate limit, timeout)
           let fetchOk = false;
-          let lastErr: any;
+          let lastErr: unknown;
           for (let attempt = 1; attempt <= 3; attempt++) {
             try {
               const res = await fetch(highResUrl);
@@ -146,7 +154,7 @@ export async function processAndUploadImages(
         
         // Thử upload lên WP tối đa 3 lần nếu server bị lỗi 502/504
         let uploadRes;
-        let uploadRetries = 3;
+        let uploadRetries = 1;
         while (uploadRetries > 0) {
            uploadRes = await fetch(`${siteConfig.wp_url}/wp-json/wp/v2/media`, {
              method: 'POST',
@@ -154,7 +162,7 @@ export async function processAndUploadImages(
                'Content-Type': contentType,
                'Content-Disposition': `attachment; filename="${filename}"`
              }),
-             body: finalBuffer as any
+             body: new Uint8Array(finalBuffer)
            });
 
            if (uploadRes.ok) break;
@@ -193,12 +201,12 @@ export async function processAndUploadImages(
         
         let classicBlock = '';
         if (visibleCaption) {
-            classicBlock = `[caption id="attachment_${mediaId}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaId}" src="${mediaUrl}" alt="${altText}" width="${captionWidth}" height="${captionHeight}" /> ${visibleCaption}[/caption]`;
+            classicBlock = `[caption id="attachment_${mediaId}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaId}" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(altText)}" width="${captionWidth}" height="${captionHeight}" /> ${escapeHtml(visibleCaption)}[/caption]`;
         } else {
-            classicBlock = `<img class="aligncenter size-full wp-image-${mediaId}" src="${mediaUrl}" alt="${altText}" width="${captionWidth}" height="${captionHeight}" />`;
+            classicBlock = `<img class="aligncenter size-full wp-image-${mediaId}" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(altText)}" width="${captionWidth}" height="${captionHeight}" />`;
         }
 
-        return { index: i, classicBlock, imgNode: img };
+        return { index: i, classicBlock, imgNode: img, media: { source: src, url: mediaUrl as string, id: mediaId as number, width, height } };
       } catch (e) {
         console.error(`Lỗi xử lý ảnh ${i}:`, e);
         return null;
@@ -208,25 +216,12 @@ export async function processAndUploadImages(
     // Gán kết quả vào HTML theo đúng thứ tự
     for (let bIdx = 0; bIdx < batchResults.length; bIdx++) {
       const result = batchResults[bIdx];
-      const imgEl = batch[bIdx];
-      const $imgEl = $(imgEl);
 
-      if (!result) {
-        // Ảnh fetch/upload lỗi → xóa thẻ <img> gốc (URL Google đã expired)
-        // để tránh hiển thị icon ảnh lỗi trên WordPress
-        const parentP = $imgEl.closest('p');
-        if (parentP.length > 0 && parentP.text().trim() === '' && parentP.find('img').length <= 1) {
-          parentP.remove(); // Xóa luôn thẻ <p> bọc ngoài nếu chỉ chứa ảnh lỗi
-        } else {
-          $imgEl.remove();
-        }
-        console.warn(`Đã xóa thẻ <img> lỗi #${batchStart + bIdx + 1} khỏi HTML output.`);
-        continue;
-      }
-
+      if (!result) throw new Error(`Không xử lý được ảnh #${batchStart + bIdx + 1}. Nội dung chưa được cập nhật; ảnh gốc vẫn được giữ lại.`);
+      uploadedImages.push(result.media);
       const { classicBlock, imgNode } = result;
       const parentP = imgNode.closest('p');
-      if (parentP.length > 0 && parentP.text().trim() === '') {
+      if (parentP.length > 0 && parentP.text().trim() === '' && parentP.find('img').length === 1) {
         parentP.html(classicBlock);
         parentP.attr('style', 'text-align: center;');
       } else {
@@ -237,11 +232,12 @@ export async function processAndUploadImages(
 
   // Lấy ra HTML sau khi đã thay thế sạch sẽ
   // Cheerio tự thêm thẻ <body> nên cần lấy html bên trong body
-  let finalHtml = $('body').html() || $.html();
+  const finalHtml = $('body').html() || $.html();
   
   return { 
     processedHtml: finalHtml, 
-    thumbnailId 
+    thumbnailId,
+    uploadedImages
   };
 }
 
@@ -266,7 +262,7 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
               fetchOk = true;
               break;
             }
-          } catch (e) { /* retry */ }
+          } catch { /* retry */ }
           if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
         }
         if (!fetchOk) return null;
@@ -285,7 +281,7 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
           'Content-Type': contentType,
           'Content-Disposition': `attachment; filename="${safeFilename}"`
         }),
-        body: finalBuffer as any
+        body: new Uint8Array(finalBuffer)
       });
 
       if (!uploadRes.ok) return null;
@@ -299,7 +295,7 @@ async function uploadImageToWp(src: string, filename: string, seoText: string, s
       });
 
       return mediaData.id;
-    } catch (e) {
+    } catch {
       return null;
     }
 }
@@ -327,7 +323,7 @@ function convertToSlug(str: string) {
   return str.replace(/^-+|-+$/g, "");
 }
 
-async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, globalUsedMediaIds: number[]): Promise<any> {
+async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, globalUsedMediaIds: number[]): Promise<MediaMatch | null> {
   const cleanName = filename.replace(/\.(webp|jpg|png|jpeg)$/i, "");
   const options = {
     method: "GET",
@@ -336,12 +332,12 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
     })
   };
 
-  const fetchWithRetry = async (url: string) => {
+  const fetchWithRetry = async (url: string): Promise<WpMedia[] | null> => {
     for (let i = 1; i <= 3; i++) {
       try {
         const res = await fetch(url, options);
         if (res.ok) return await res.json();
-      } catch (e) {
+      } catch {
         if (i === 3) return null;
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -354,7 +350,7 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
   const dataSlug = await fetchWithRetry(urlSlug);
   
   if (dataSlug && dataSlug.length > 0) {
-    let matchedId = dataSlug[0].id;
+    const matchedId = dataSlug[0].id;
     if (!globalUsedMediaIds.includes(matchedId)) {
       globalUsedMediaIds.push(matchedId);
       return { id: matchedId, url: dataSlug[0].source_url, w: dataSlug[0].media_details?.width, h: dataSlug[0].media_details?.height };
@@ -363,15 +359,15 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
 
   // Bước 2: Tìm mờ bằng search query
   // Dùng spaces thay vì hyphens vì WP REST API search tìm trong title (có spaces)
-  let wordsArray = cleanName.split("-");
-  let shortName = wordsArray.length > 5 ? wordsArray.slice(0, 5).join("-") : cleanName;
+  const wordsArray = cleanName.split("-");
+  const shortName = wordsArray.length > 5 ? wordsArray.slice(0, 5).join("-") : cleanName;
   const searchQuery = shortName.replace(/-/g, ' '); // WP search cần spaces
   
   const urlSearch = `${siteConfig.wp_url.replace(/\/$/, "")}/wp-json/wp/v2/media?search=${encodeURIComponent(searchQuery)}`;
   const dataSearch = await fetchWithRetry(urlSearch);
   
   if (dataSearch && dataSearch.length > 0) {
-    let availableMedia = dataSearch.filter((d: any) => !globalUsedMediaIds.includes(d.id));
+    const availableMedia = dataSearch.filter((d: WpMedia) => !globalUsedMediaIds.includes(d.id));
     if (availableMedia.length > 0) {
       const getFilename = (url: string) => {
         if (!url) return '';
@@ -385,7 +381,7 @@ async function getMediaDataByFilename(filename: string, siteConfig: SiteConfig, 
       // 1. Tên file BẮT ĐẦU bằng từ khóa (ví dụ: keyword-abc.jpg)
       // 2. Tên file CHỨA từ khóa (ví dụ: prefix-keyword.jpg)
       // 3. Kết quả search mặc định của WordPress
-      availableMedia.sort((a: any, b: any) => {
+      availableMedia.sort((a: WpMedia, b: WpMedia) => {
         const fileA = getFilename(a.source_url);
         const fileB = getFilename(b.source_url);
         
@@ -417,7 +413,7 @@ export async function processImagesByCaption(
   htmlContent: string,
   title: string,
   siteConfig: SiteConfig
-): Promise<{ processedHtml: string, thumbnailId: number | null }> {
+): Promise<{ processedHtml: string, thumbnailId: number | null, uploadedImages: UploadedImage[] }> {
   
   const globalUsedMediaIds: number[] = [];
   
@@ -425,7 +421,8 @@ export async function processImagesByCaption(
   // Thử nhiều cấp từ slug đầy đủ → rút gọn dần (5,4,3,2 từ đầu)
   // vì user thường đặt tên ảnh thumbnail NGẮN hơn title
   const h1Slug = convertToSlug(title);
-  let thumbData: any = null;
+  let thumbData: MediaMatch | null = null;
+  const uploadedImages: UploadedImage[] = [];
   let thumbnailId: number | null = null;
 
   const slugWords = h1Slug.split('-');
@@ -501,7 +498,7 @@ export async function processImagesByCaption(
                   const captionWidth = mediaData.w || 1200;
                   const captionHeight = mediaData.h || 800;
                   
-                  const classicBlock = `[caption id="attachment_${mediaData.id}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaData.id}" src="${mediaData.url}" alt="${text}" width="${captionWidth}" height="${captionHeight}" /> ${text}[/caption]`;
+                  const classicBlock = `[caption id="attachment_${mediaData.id}" align="aligncenter" width="${captionWidth}"]<img class="size-full wp-image-${mediaData.id}" src="${escapeHtml(mediaData.url)}" alt="${escapeHtml(text)}" width="${captionWidth}" height="${captionHeight}" /> ${escapeHtml(text)}[/caption]`;
                   
                   $el.html(classicBlock);
                   $el.attr('style', 'text-align: center;');
@@ -515,13 +512,14 @@ export async function processImagesByCaption(
       }
   }
 
-  let finalHtml = $('body').html() || $.html();
+  const finalHtml = $('body').html() || $.html();
 
   // KHÔNG bơm ảnh thumbnail giả lên đầu bài nếu không tìm thấy
   // (Trước đây code chèn URL đoán mò `/wp-content/uploads/...` gây ảnh lỗi)
 
   return { 
     processedHtml: finalHtml, 
-    thumbnailId 
+    thumbnailId,
+    uploadedImages
   };
 }
